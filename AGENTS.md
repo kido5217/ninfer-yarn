@@ -163,8 +163,8 @@ All changes land on `master` only through the pipeline: `branch → commit → p
 - **branch** — create a feature branch from `master`.
 - **commit** — Conventional Commit subjects, per `Local operations`.
 - **push** — `git push -u origin <branch>`.
-- **PR** — open a PR against `master`.
-- **merge** — squash merge through the PR, one PR is one logical change; delete the merged branch.
+- **PR** — open a PR against `master`. The LLM is permitted to create PRs.
+- **merge** — squash merge through the PR, one PR is one logical change; delete the merged branch. The LLM is permitted to merge PRs.
 - **rebase** — after the merge, rebase remaining local work onto the updated `master`.
 
 `master` is protected: nothing lands on it outside the pipeline.
