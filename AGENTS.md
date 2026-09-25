@@ -156,6 +156,19 @@ only when that work is in scope. Install or upgrade dependencies only when the t
 Create commits only when requested. Use Conventional Commit subjects with concise lowercase types
 such as `feat`, `fix`, `perf`, `bench`, `test`, `build`, `refactor`, `docs`, or `chore`.
 
+## Git
+
+All changes land on `master` only through the pipeline: `branch → commit → push → PR → merge → rebase`.
+
+- **branch** — create a feature branch from `master`.
+- **commit** — Conventional Commit subjects, per `Local operations`.
+- **push** — `git push -u origin <branch>`.
+- **PR** — open a PR against `master`.
+- **merge** — squash merge through the PR, one PR is one logical change; delete the merged branch.
+- **rebase** — after the merge, rebase remaining local work onto the updated `master`.
+
+`master` is protected: nothing lands on it outside the pipeline.
+
 ## Agent skills
 
 ### Issue tracker
