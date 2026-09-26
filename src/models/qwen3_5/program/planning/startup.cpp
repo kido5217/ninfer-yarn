@@ -245,23 +245,22 @@ PersistentLayout persistent_layout(const SequencePlanImpl& plan) {
         const double scale = static_cast<double>(plan.capacity) /
                              static_cast<double>(config.max_position_embeddings);
         const auto table = ops::compute_rope_yarn_table(
-            config.rope_parameters->rope_theta,
-            dimension(config.rope_parameters->rotary_dim),
+            config.rope_parameters->rope_theta, dimension(config.rope_parameters->rotary_dim),
             static_cast<std::int64_t>(config.max_position_embeddings), scale);
         yarn_inv_freq   = std::move(table.inv_freq);
         yarn_rotary_dim = config.rope_parameters->rotary_dim;
         yarn_mscale     = table.mscale;
     }
     out.round = qwen3_5::begin_round_state_layout(
-        builder, qwen3_5::RoundStateSpec{.hidden            = dimension(config.hidden_size),
-                                         .output_rows       = dimension(config.vocab_size),
-                                         .batch_capacity    = plan.max_concurrency,
-                                         .draft_window      = plan.draft_window,
-                                         .backend           = plan.speculative_backend,
-                                         .causal_scoring    = plan.causal_scoring,
-                                         .yarn_inv_freq     = std::move(yarn_inv_freq),
-                                         .yarn_rotary_dim   = yarn_rotary_dim,
-                                         .yarn_mscale       = yarn_mscale});
+        builder, qwen3_5::RoundStateSpec{.hidden          = dimension(config.hidden_size),
+                                         .output_rows     = dimension(config.vocab_size),
+                                         .batch_capacity  = plan.max_concurrency,
+                                         .draft_window    = plan.draft_window,
+                                         .backend         = plan.speculative_backend,
+                                         .causal_scoring  = plan.causal_scoring,
+                                         .yarn_inv_freq   = std::move(yarn_inv_freq),
+                                         .yarn_rotary_dim = yarn_rotary_dim,
+                                         .yarn_mscale     = yarn_mscale});
     out.prefill_hidden =
         add_tensor(builder, DType::BF16, {dimension(config.hidden_size), effective_prefill_chunk},
                    "step prefill hidden");
@@ -769,13 +768,14 @@ void validate_target_options(const execution::Parameters& parameters, DeviceCont
             "YaRN context extension (--max-context above max_position_embeddings) is not "
             "supported with a DFlash draft backend");
     }
-    if (parameters.draft &&
+    // The MTP draft backend rides the text rope table and the text position capacity, so its
+    // native window never bounds an extended context; only the DFlash (masked) backend keeps
+    // the draft-native capacity check (the YaRN case is rejected above).
+    if (parameters.draft && is_masked_draft_backend(options.speculative.backend) &&
         options.max_context > parameters.model.config().draft->max_position_embeddings) {
         throw std::invalid_argument("max_context exceeds the selected draft position capacity");
     }
-    if (options.max_context == 0) {
-        throw std::invalid_argument("max_context must be positive");
-    }
+    if (options.max_context == 0) { throw std::invalid_argument("max_context must be positive"); }
     if (options.prefill_chunk == 0 || options.prefill_chunk % kPrefillChunkAlignment != 0) {
         throw std::invalid_argument("prefill_chunk must be a nonzero multiple of 128");
     }
