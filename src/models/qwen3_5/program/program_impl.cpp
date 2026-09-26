@@ -299,6 +299,14 @@ ProgramImpl::ProgramImpl(const execution::Parameters& parameters_in, const Seque
         CUDA_CHECK(
             cudaMemsetAsync(sampling_config.data, 0, sampling_config.bytes(), device.stream));
     }
+    // Upload the YaRN inverse-frequency table (a program-owned persistent buffer at a stable
+    // address) before Graph capture so the stable pointer is present throughout the program.
+    if (io.yarn_inv_freq.data != nullptr) {
+        CUDA_CHECK(cudaMemcpyAsync(io.yarn_inv_freq.data,
+                                   plan.persistent.round.yarn_inv_freq_values.data(),
+                                   io.yarn_inv_freq.bytes(), cudaMemcpyHostToDevice,
+                                   device.stream));
+    }
     device.synchronize();
     if (use_cuda_graph) {
         StartupPhaseScope graph_phase(startup_observer, StartupPhase::CudaGraphPrepare);

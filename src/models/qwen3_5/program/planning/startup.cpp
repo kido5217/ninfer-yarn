@@ -13,6 +13,7 @@
 #include "ninfer/ops/context_kv_materialize.h"
 #include "ninfer/ops/dynamic_grouped_conv.h"
 #include "ninfer/ops/linear_topk.h"
+#include "ninfer/ops/rope.h"
 #include "ninfer/ops/gdn_gating_proj.h"
 #include "ninfer/ops/gdn_input_proj.h"
 #include "ninfer/ops/linear_add.h"
@@ -233,13 +234,34 @@ PersistentLayout persistent_layout(const SequencePlanImpl& plan) {
         }
     }
 
+    // YaRN context extension: activated when the logical context ceiling exceeds the native
+    // position capacity. The per-pair frequency table and the attention magnitude are computed
+    // host-side (fp64) and carried to the persistent layout for the one-shot device upload.
+    std::vector<float> yarn_inv_freq;
+    std::uint32_t yarn_rotary_dim = 0;
+    float yarn_mscale             = 1.0f;
+    if (config.rope_parameters && config.max_position_embeddings > 0 &&
+        plan.capacity > config.max_position_embeddings) {
+        const double scale = static_cast<double>(plan.capacity) /
+                             static_cast<double>(config.max_position_embeddings);
+        const auto table = ops::compute_rope_yarn_table(
+            config.rope_parameters->rope_theta,
+            dimension(config.rope_parameters->rotary_dim),
+            static_cast<std::int64_t>(config.max_position_embeddings), scale);
+        yarn_inv_freq   = std::move(table.inv_freq);
+        yarn_rotary_dim = config.rope_parameters->rotary_dim;
+        yarn_mscale     = table.mscale;
+    }
     out.round = qwen3_5::begin_round_state_layout(
-        builder, qwen3_5::RoundStateSpec{.hidden         = dimension(config.hidden_size),
-                                         .output_rows    = dimension(config.vocab_size),
-                                         .batch_capacity = plan.max_concurrency,
-                                         .draft_window   = plan.draft_window,
-                                         .backend        = plan.speculative_backend,
-                                         .causal_scoring = plan.causal_scoring});
+        builder, qwen3_5::RoundStateSpec{.hidden            = dimension(config.hidden_size),
+                                         .output_rows       = dimension(config.vocab_size),
+                                         .batch_capacity    = plan.max_concurrency,
+                                         .draft_window      = plan.draft_window,
+                                         .backend           = plan.speculative_backend,
+                                         .causal_scoring    = plan.causal_scoring,
+                                         .yarn_inv_freq     = std::move(yarn_inv_freq),
+                                         .yarn_rotary_dim   = yarn_rotary_dim,
+                                         .yarn_mscale       = yarn_mscale});
     out.prefill_hidden =
         add_tensor(builder, DType::BF16, {dimension(config.hidden_size), effective_prefill_chunk},
                    "step prefill hidden");
@@ -737,13 +759,22 @@ void validate_target_options(const execution::Parameters& parameters, DeviceCont
         throw std::invalid_argument(
             "loaded components do not match the requested execution options");
     }
+    // YaRN context extension: --max-context above the native position capacity activates the
+    // YaRN route (v1 does not read yarn from the artifact config). DFlash draft backends are
+    // out of scope for v1 and produce an explicit startup error.
+    const bool yarn_active =
+        options.max_context > parameters.model.config().text.max_position_embeddings;
+    if (yarn_active && is_masked_draft_backend(options.speculative.backend)) {
+        throw std::invalid_argument(
+            "YaRN context extension (--max-context above max_position_embeddings) is not "
+            "supported with a DFlash draft backend");
+    }
     if (parameters.draft &&
         options.max_context > parameters.model.config().draft->max_position_embeddings) {
         throw std::invalid_argument("max_context exceeds the selected draft position capacity");
     }
-    if (options.max_context == 0 ||
-        options.max_context > parameters.model.config().text.max_position_embeddings) {
-        throw std::invalid_argument("max_context exceeds the configured position capacity");
+    if (options.max_context == 0) {
+        throw std::invalid_argument("max_context must be positive");
     }
     if (options.prefill_chunk == 0 || options.prefill_chunk % kPrefillChunkAlignment != 0) {
         throw std::invalid_argument("prefill_chunk must be a nonzero multiple of 128");

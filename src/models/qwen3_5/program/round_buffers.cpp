@@ -83,6 +83,14 @@ RoundStateLayout begin_round_state_layout(LayoutBuilder& builder, const RoundSta
         layout.backend_kv_table_row =
             add_tensor(builder, DType::I32, {1}, "step backend KV table row");
     }
+    if (!spec.yarn_inv_freq.empty()) {
+        layout.yarn_inv_freq =
+            add_tensor(builder, DType::FP32,
+                       {checked_i32(spec.yarn_inv_freq.size(), "YaRN table exceeds int32")},
+                       "YaRN inverse frequency table");
+        layout.yarn_inv_freq_values = spec.yarn_inv_freq;
+        layout.yarn_mscale          = spec.yarn_mscale;
+    }
     return layout;
 }
 
@@ -397,6 +405,8 @@ RoundState::RoundState(DeviceSpan backing, const RoundStateLayout& layout) {
         dflash_decode.emplace(backing, *layout.dflash_decode, layout.spec.batch_capacity,
                               layout.spec.draft_window);
     }
+    if (layout.yarn_inv_freq) { yarn_inv_freq = layout.yarn_inv_freq->bind(backing); }
+    yarn_mscale = layout.yarn_mscale;
 }
 
 } // namespace ninfer::models::qwen3_5

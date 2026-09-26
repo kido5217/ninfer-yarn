@@ -8,6 +8,7 @@
 #include "core/linear_attention_state.h"
 #include "core/tensor.h"
 #include "core/weight.h"
+#include "ninfer/ops/rope.h"
 #include "ninfer/ops/sampling.h"
 #include "ninfer/ops/softmax_attention.h"
 #include "ninfer/ops/sparse_moe.h"
@@ -239,6 +240,9 @@ private:
     std::int64_t prefill_split_frontier_      = -1;
     Tensor* rewrite_checkpoint_hidden_output_ = nullptr;
     std::uint32_t mtp_proposal_extent_        = 0;
+    // Device-resident YaRN state (table + magnitude). `yarn_.inv_freq` is null
+    // when the sequence is unextended, keeping the power-law route unchanged.
+    ops::YarnScale yarn_{};
 
     const Weight* embed_                        = nullptr;
     const Tensor* final_norm_                   = nullptr;
