@@ -25,6 +25,51 @@ constexpr float kVisionTheta = 10'000.0F;
 // than by the cancelled output value.
 constexpr double kRopePointwisePairRtol = 6.9e-3;
 
+// Pinned YaRN geometry (base=1e7, R=64, L=262144, beta_fast=32/beta_slow=1, ext_factor=1).
+// The golden vectors below are the FP64 reference values produced by the independent torch
+// implementation (tools/yarn_table_check.py) and committed here as the source of truth for the
+// table construction. low/high pin the correction range; the s=2 table pins the blend.
+constexpr int kYarnOriginalMax            = 262'144;
+constexpr int kYarnGoldenLow              = 14;
+constexpr int kYarnGoldenHigh             = 22;
+constexpr double kYarnGoldenMscaleS2      = 1.0693147180559945;
+constexpr double kYarnGoldenInvFreqS2[32] = {1.0,
+                                             0.6042963902381329,
+                                             0.3651741272548377,
+                                             0.220673406908459,
+                                             0.1333521432163324,
+                                             0.08058421877614819,
+                                             0.04869675251658631,
+                                             0.029427271762092817,
+                                             0.01778279410038923,
+                                             0.010746078283213174,
+                                             0.006493816315762113,
+                                             0.003924189758484536,
+                                             0.0023713737056616554,
+                                             0.0014330125702369627,
+                                             0.0008659643233600654,
+                                             0.0004905929200139013,
+                                             0.00027669929526473317,
+                                             0.0001552649292163483,
+                                             8.660864885170936e-05,
+                                             4.7975852709115815e-05,
+                                             2.6356031464286386e-05,
+                                             1.4334169207383823e-05,
+                                             7.69963263029746e-06,
+                                             4.652860204648495e-06,
+                                             2.8117066259517456e-06,
+                                             1.6991041644712796e-06,
+                                             1.026762513228573e-06,
+                                             6.204688803758598e-07,
+                                             3.749471046662279e-07,
+                                             2.265791818800409e-07,
+                                             1.3692098171321807e-07,
+                                             8.274085499715907e-08};
+// Synthetic R=8 (4-pair) geometry at s=2: catches table-construction index handling independent
+// of the model constants (low=1, high=3).
+constexpr double kYarnGoldenInvFreqR8S2[4] = {1.0, 0.01778279410038923, 0.00023717082451262845,
+                                              2.8117066259517456e-06};
+
 struct Geometry {
     const char* label;
     int head_dim;
@@ -111,6 +156,100 @@ std::vector<double> rope_oracle(const std::vector<float>& input, const std::vect
         }
     }
     return output;
+}
+
+// Table-driven YaRN oracle: evaluates from the represented inputs (positions + the fp32 inv_freq
+// table + mscale), naive FP64 split-half rotation, modeling the fp32 angle quantization
+// (phi = (float)(position * inv_freq[pair]) before the FP64 trig). The per-pair frequency comes
+// from the table (not the power law); mscale scales cos/sin after the trig.
+std::vector<double> rope_oracle_yarn(const std::vector<float>& input,
+                                     const std::vector<int>& positions, const Geometry& geometry,
+                                     int heads, const std::vector<float>& inv_freq_table,
+                                     float mscale) {
+    std::vector<double> output(input.begin(), input.end());
+    const int half = geometry.rotary_dim / 2;
+    for (int token = 0; token < geometry.tokens; ++token) {
+        for (int head = 0; head < heads; ++head) {
+            for (int pair = 0; pair < half; ++pair) {
+                const int axis       = geometry.axes == 3 ? pair % 3 : 0;
+                const float position = static_cast<float>(
+                    positions[static_cast<std::size_t>(axis) * geometry.tokens + token]);
+                const float phi = position * inv_freq_table[pair];
+                const double cosine =
+                    std::cos(static_cast<double>(phi)) * static_cast<double>(mscale);
+                const double sine =
+                    std::sin(static_cast<double>(phi)) * static_cast<double>(mscale);
+                const std::size_t lo = dense_index(geometry.head_dim, heads, token, head, pair);
+                const std::size_t hi =
+                    dense_index(geometry.head_dim, heads, token, head, pair + half);
+                const double first  = static_cast<double>(input[lo]);
+                const double second = static_cast<double>(input[hi]);
+                output[lo]          = first * cosine - second * sine;
+                output[hi]          = second * cosine + first * sine;
+            }
+        }
+    }
+    return output;
+}
+
+// Verifies the host-side YaRN table construction against the committed (torch-derived) golden
+// vectors: the correction range (low/high) and the s=2 / s=1.0 tables. Returns failure count.
+int verify_yarn_table() {
+    int failures = 0;
+    // s=2 pinned geometry: low/high and the full 32-pair table.
+    const auto s2 = ops::compute_rope_yarn_table(kTextTheta, 64, kYarnOriginalMax, 2.0);
+    if (s2.inv_freq.size() != 32) {
+        std::cerr << "yarn table: s=2 table size " << s2.inv_freq.size() << " != 32\n";
+        ++failures;
+    }
+    if (std::abs(static_cast<double>(s2.mscale) - kYarnGoldenMscaleS2) > 1e-9) {
+        std::cerr << "yarn table: s=2 mscale " << s2.mscale << " != golden " << kYarnGoldenMscaleS2
+                  << '\n';
+        ++failures;
+    }
+    for (int i = 0; i < 32 && i < static_cast<int>(s2.inv_freq.size()); ++i) {
+        const double got      = static_cast<double>(s2.inv_freq[i]);
+        const double expected = kYarnGoldenInvFreqS2[i];
+        const double rel      = std::abs(got - expected) / std::max(1.0, std::abs(expected));
+        if (rel > 1e-6) {
+            std::cerr << "yarn table: s=2 inv_freq[" << i << "]=" << got << " != golden "
+                      << expected << " (rel=" << rel << ")\n";
+            ++failures;
+        }
+    }
+    // s=1.0 must degenerate to the pure power law (theta^(-2i/64)) with mscale == 1: byte-identical
+    // to the unextended path.
+    const auto s1 = ops::compute_rope_yarn_table(kTextTheta, 64, kYarnOriginalMax, 1.0);
+    if (std::abs(static_cast<double>(s1.mscale) - 1.0) > 0.0) {
+        std::cerr << "yarn table: s=1.0 mscale " << s1.mscale << " != 1.0\n";
+        ++failures;
+    }
+    for (int i = 0; i < 32 && i < static_cast<int>(s1.inv_freq.size()); ++i) {
+        const double expected = std::pow(1.0e7, -2.0 * static_cast<double>(i) / 64.0);
+        const double rel      = std::abs(static_cast<double>(s1.inv_freq[i]) - expected) / expected;
+        if (rel > 1e-6) {
+            std::cerr << "yarn table: s=1.0 inv_freq[" << i << "] != power law (rel=" << rel
+                      << ")\n";
+            ++failures;
+        }
+    }
+    // Synthetic R=8 (4 pairs) at s=2: independent index handling.
+    const auto r8 = ops::compute_rope_yarn_table(kTextTheta, 8, kYarnOriginalMax, 2.0);
+    if (r8.inv_freq.size() != 4) {
+        std::cerr << "yarn table: R=8 table size " << r8.inv_freq.size() << " != 4\n";
+        ++failures;
+    }
+    for (int i = 0; i < 4 && i < static_cast<int>(r8.inv_freq.size()); ++i) {
+        const double got      = static_cast<double>(r8.inv_freq[i]);
+        const double expected = kYarnGoldenInvFreqR8S2[i];
+        const double rel      = std::abs(got - expected) / std::max(1.0, std::abs(expected));
+        if (rel > 1e-6) {
+            std::cerr << "yarn table: R=8 s=2 inv_freq[" << i << "]=" << got << " != golden "
+                      << expected << " (rel=" << rel << ")\n";
+            ++failures;
+        }
+    }
+    return failures;
 }
 
 std::vector<std::uint16_t> make_strided_storage(const std::vector<std::uint16_t>& dense,
@@ -251,8 +390,9 @@ int run_pair_case(const Geometry& geometry, int q_heads, int k_heads, int first_
     if (lane_width != 0) {
         for (int axis = 0; axis < geometry.axes; ++axis)
             for (int t = 0; t < geometry.tokens; ++t)
-                positions[axis * geometry.tokens + t] = first_position +
-                    1009 * (t / lane_width) + 97 * axis + (2 * axis + 1) * (t % lane_width);
+                positions[axis * geometry.tokens + t] = first_position + 1009 * (t / lane_width) +
+                                                        97 * axis +
+                                                        (2 * axis + 1) * (t % lane_width);
     }
     const auto q_expected = rope_oracle(q, positions, geometry, q_heads);
     const auto k_expected = rope_oracle(k, positions, geometry, k_heads);
@@ -284,9 +424,9 @@ int run_pair_case(const Geometry& geometry, int q_heads, int k_heads, int first_
         CUDA_CHECK(cudaGraphInstantiate(&executable, captured, nullptr, nullptr, 0));
         for (int replay = 0; replay < 2; ++replay) {
             CUDA_CHECK(cudaMemcpyAsync(q_device.data(), q_storage.data(), q_device.bytes(),
-                cudaMemcpyHostToDevice, stream));
+                                       cudaMemcpyHostToDevice, stream));
             CUDA_CHECK(cudaMemcpyAsync(k_device.data(), k_storage.data(), k_device.bytes(),
-                cudaMemcpyHostToDevice, stream));
+                                       cudaMemcpyHostToDevice, stream));
             CUDA_CHECK(cudaGraphLaunch(executable, stream));
             CUDA_CHECK(cudaStreamSynchronize(stream));
         }
@@ -318,6 +458,200 @@ int run_pair_case(const Geometry& geometry, int q_heads, int k_heads, int first_
     failures += q_device.verify_guards((label + " q guards").c_str());
     failures += k_device.verify_guards((label + " k guards").c_str());
     failures += position_device.verify_guards((label + " position guards").c_str());
+    return failures;
+}
+
+// Positions at the acceptance grid values for a given extension factor: 0, 1, L/2, L*s/2,
+// L*s-1, L*s (six tokens), with a per-axis offset so MRoPE exercises the per-axis selection.
+std::vector<int> make_yarn_positions(int axes, int tokens, int original_max, double scale) {
+    const int s                 = static_cast<int>(scale);
+    const int capacity          = original_max * s;
+    const std::vector<int> grid = {
+        0,       1, original_max / 2, static_cast<int>(original_max * scale / 2.0), capacity - 1,
+        capacity};
+    std::vector<int> positions(static_cast<std::size_t>(axes) * tokens);
+    for (int axis = 0; axis < axes; ++axis) {
+        for (int token = 0; token < tokens; ++token) {
+            positions[static_cast<std::size_t>(axis) * tokens + token] = grid[token] + 97 * axis;
+        }
+    }
+    return positions;
+}
+
+// Runs the YaRN pair form: builds the host table, uploads it to a stable device buffer, calls the
+// YaRN Op (dispatched on table presence), and verifies against the table-driven oracle. The
+// graph flag also captures + replays the YaRN launch (table pointer is stable under capture).
+int run_yarn_pair_case(const Geometry& geometry, int q_heads, int k_heads, double scale,
+                       int q_padding = 0, int k_padding = 0, bool graph = false) {
+    constexpr std::uint16_t kPadding = 0x3f81U;
+    const int q_dense_per_token      = geometry.head_dim * q_heads;
+    const int k_dense_per_token      = geometry.head_dim * k_heads;
+    const int q_stride               = q_dense_per_token + q_padding;
+    const int k_stride               = k_dense_per_token + k_padding;
+
+    const auto table =
+        ops::compute_rope_yarn_table(geometry.theta, geometry.rotary_dim, kYarnOriginalMax, scale);
+    const auto q =
+        make_bf16_input(dense_elements(geometry.head_dim, q_heads, geometry.tokens), 0x5001U);
+    const auto k =
+        make_bf16_input(dense_elements(geometry.head_dim, k_heads, geometry.tokens), 0x5002U);
+    const auto q_before = to_bf16_bits(q);
+    const auto k_before = to_bf16_bits(k);
+    const auto q_storage =
+        make_strided_storage(q_before, q_dense_per_token, q_stride, geometry.tokens, kPadding);
+    const auto k_storage =
+        make_strided_storage(k_before, k_dense_per_token, k_stride, geometry.tokens, kPadding);
+    const auto positions =
+        make_yarn_positions(geometry.axes, geometry.tokens, kYarnOriginalMax, scale);
+    const auto q_expected =
+        rope_oracle_yarn(q, positions, geometry, q_heads, table.inv_freq, table.mscale);
+    const auto k_expected =
+        rope_oracle_yarn(k, positions, geometry, k_heads, table.inv_freq, table.mscale);
+
+    GuardedDeviceBuffer q_device(q_storage.size() * sizeof(std::uint16_t));
+    GuardedDeviceBuffer k_device(k_storage.size() * sizeof(std::uint16_t));
+    GuardedDeviceBuffer position_device(positions.size() * sizeof(int));
+    GuardedDeviceBuffer table_device(table.inv_freq.size() * sizeof(float));
+    q_device.copy_from_host(q_storage.data(), q_device.bytes());
+    k_device.copy_from_host(k_storage.data(), k_device.bytes());
+    position_device.copy_from_host(positions.data(), position_device.bytes());
+    table_device.copy_from_host(table.inv_freq.data(), table_device.bytes());
+
+    Tensor position_tensor(position_device.data(), DType::I32, {geometry.tokens, geometry.axes});
+    Tensor q_tensor(q_device.data(), DType::BF16, {geometry.head_dim, q_heads, geometry.tokens});
+    Tensor k_tensor(k_device.data(), DType::BF16, {geometry.head_dim, k_heads, geometry.tokens});
+    q_tensor.nb[2] = static_cast<std::int64_t>(q_stride) * sizeof(std::uint16_t);
+    k_tensor.nb[2] = static_cast<std::int64_t>(k_stride) * sizeof(std::uint16_t);
+
+    ops::YarnScale yarn{static_cast<const float*>(table_device.data()), table.mscale};
+    ops::rope(position_tensor, geometry.rotary_dim, geometry.theta, yarn, q_tensor, k_tensor,
+              nullptr);
+    cuda_synchronize();
+
+    if (graph) {
+        cudaStream_t stream;
+        cudaGraph_t captured;
+        cudaGraphExec_t executable;
+        CUDA_CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
+        CUDA_CHECK(cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal));
+        ops::rope(position_tensor, geometry.rotary_dim, geometry.theta, yarn, q_tensor, k_tensor,
+                  stream);
+        CUDA_CHECK(cudaStreamEndCapture(stream, &captured));
+        CUDA_CHECK(cudaGraphInstantiate(&executable, captured, nullptr, nullptr, 0));
+        for (int replay = 0; replay < 2; ++replay) {
+            CUDA_CHECK(cudaMemcpyAsync(q_device.data(), q_storage.data(), q_device.bytes(),
+                                       cudaMemcpyHostToDevice, stream));
+            CUDA_CHECK(cudaMemcpyAsync(k_device.data(), k_storage.data(), k_device.bytes(),
+                                       cudaMemcpyHostToDevice, stream));
+            CUDA_CHECK(cudaGraphLaunch(executable, stream));
+            CUDA_CHECK(cudaStreamSynchronize(stream));
+        }
+        CUDA_CHECK(cudaGraphExecDestroy(executable));
+        CUDA_CHECK(cudaGraphDestroy(captured));
+        CUDA_CHECK(cudaStreamDestroy(stream));
+    }
+
+    const auto q_got        = from_device<std::uint16_t>(q_device.data(), q_storage.size());
+    const auto k_got        = from_device<std::uint16_t>(k_device.data(), k_storage.size());
+    const std::string label = std::string(geometry.label) + " yarn s=" + std::to_string(scale);
+    int failures            = 0;
+    failures += verify_rope_profile(
+        label + " q", gather_dense(q_got, q_dense_per_token, q_stride, geometry.tokens), q_expected,
+        q, geometry, q_heads);
+    failures += verify_rope_profile(
+        label + " k", gather_dense(k_got, k_dense_per_token, k_stride, geometry.tokens), k_expected,
+        k, geometry, k_heads);
+    failures += verify_passthrough(label + " q", q_got, q_before, geometry.head_dim, q_heads,
+                                   geometry.tokens, geometry.rotary_dim, q_stride);
+    failures += verify_passthrough(label + " k", k_got, k_before, geometry.head_dim, k_heads,
+                                   geometry.tokens, geometry.rotary_dim, k_stride);
+    failures +=
+        verify_padding(label + " q", q_got, q_dense_per_token, q_stride, geometry.tokens, kPadding);
+    failures +=
+        verify_padding(label + " k", k_got, k_dense_per_token, k_stride, geometry.tokens, kPadding);
+    failures += verify_exact((label + " positions").c_str(),
+                             from_device<int>(position_device.data(), positions.size()), positions);
+    failures += q_device.verify_guards((label + " q guards").c_str());
+    failures += k_device.verify_guards((label + " k guards").c_str());
+    failures += position_device.verify_guards((label + " position guards").c_str());
+    failures += table_device.verify_guards((label + " table guards").c_str());
+    return failures;
+}
+
+// Direct structural-inert check: the s=1.0 YaRN output must be byte-identical to the non-YaRN
+// (power-law) output on the same input (invariant D6.1).
+int run_yarn_structural_inert(const Geometry& geometry, int q_heads, int k_heads) {
+    constexpr std::uint16_t kPadding = 0x3f81U;
+    const int q_dense_per_token      = geometry.head_dim * q_heads;
+    const int k_dense_per_token      = geometry.head_dim * k_heads;
+    const auto table =
+        ops::compute_rope_yarn_table(geometry.theta, geometry.rotary_dim, kYarnOriginalMax, 1.0);
+    const auto q =
+        make_bf16_input(dense_elements(geometry.head_dim, q_heads, geometry.tokens), 0x6001U);
+    const auto k =
+        make_bf16_input(dense_elements(geometry.head_dim, k_heads, geometry.tokens), 0x6002U);
+    const auto q_before  = to_bf16_bits(q);
+    const auto k_before  = to_bf16_bits(k);
+    const auto q_storage = make_strided_storage(q_before, q_dense_per_token, q_dense_per_token,
+                                                geometry.tokens, kPadding);
+    const auto k_storage = make_strided_storage(k_before, k_dense_per_token, k_dense_per_token,
+                                                geometry.tokens, kPadding);
+    const auto positions =
+        make_yarn_positions(geometry.axes, geometry.tokens, kYarnOriginalMax, 1.0);
+
+    // Non-YaRN (power law) run.
+    GuardedDeviceBuffer q_ny(q_storage.size() * sizeof(std::uint16_t));
+    GuardedDeviceBuffer k_ny(k_storage.size() * sizeof(std::uint16_t));
+    GuardedDeviceBuffer pos_ny(positions.size() * sizeof(int));
+    q_ny.copy_from_host(q_storage.data(), q_ny.bytes());
+    k_ny.copy_from_host(k_storage.data(), k_ny.bytes());
+    pos_ny.copy_from_host(positions.data(), pos_ny.bytes());
+    Tensor pos_tensor_ny(pos_ny.data(), DType::I32, {geometry.tokens, geometry.axes});
+    Tensor q_tensor_ny(q_ny.data(), DType::BF16, {geometry.head_dim, q_heads, geometry.tokens});
+    Tensor k_tensor_ny(k_ny.data(), DType::BF16, {geometry.head_dim, k_heads, geometry.tokens});
+    ops::rope(pos_tensor_ny, geometry.rotary_dim, geometry.theta, q_tensor_ny, k_tensor_ny,
+              nullptr);
+    cuda_synchronize();
+
+    // YaRN s=1.0 run.
+    GuardedDeviceBuffer q_y(q_storage.size() * sizeof(std::uint16_t));
+    GuardedDeviceBuffer k_y(k_storage.size() * sizeof(std::uint16_t));
+    GuardedDeviceBuffer pos_y(positions.size() * sizeof(int));
+    GuardedDeviceBuffer table_device(table.inv_freq.size() * sizeof(float));
+    q_y.copy_from_host(q_storage.data(), q_y.bytes());
+    k_y.copy_from_host(k_storage.data(), k_y.bytes());
+    pos_y.copy_from_host(positions.data(), pos_y.bytes());
+    table_device.copy_from_host(table.inv_freq.data(), table_device.bytes());
+    Tensor pos_tensor_y(pos_y.data(), DType::I32, {geometry.tokens, geometry.axes});
+    Tensor q_tensor_y(q_y.data(), DType::BF16, {geometry.head_dim, q_heads, geometry.tokens});
+    Tensor k_tensor_y(k_y.data(), DType::BF16, {geometry.head_dim, k_heads, geometry.tokens});
+    ops::YarnScale yarn{static_cast<const float*>(table_device.data()), table.mscale};
+    ops::rope(pos_tensor_y, geometry.rotary_dim, geometry.theta, yarn, q_tensor_y, k_tensor_y,
+              nullptr);
+    cuda_synchronize();
+
+    const auto q_ny_got     = from_device<std::uint16_t>(q_ny.data(), q_storage.size());
+    const auto k_ny_got     = from_device<std::uint16_t>(k_ny.data(), k_storage.size());
+    const auto q_y_got      = from_device<std::uint16_t>(q_y.data(), q_storage.size());
+    const auto k_y_got      = from_device<std::uint16_t>(k_y.data(), k_storage.size());
+    const std::string label = std::string(geometry.label) + " yarn structural-inert";
+    int failures            = 0;
+    for (std::size_t i = 0; i < q_ny_got.size() && i < q_y_got.size(); ++i) {
+        if (q_ny_got[i] != q_y_got[i]) {
+            std::cerr << label << ": q differs from non-YaRN at element " << i << '\n';
+            ++failures;
+            break;
+        }
+    }
+    for (std::size_t i = 0; i < k_ny_got.size() && i < k_y_got.size(); ++i) {
+        if (k_ny_got[i] != k_y_got[i]) {
+            std::cerr << label << ": k differs from non-YaRN at element " << i << '\n';
+            ++failures;
+            break;
+        }
+    }
+    failures += verify_exact((label + " positions").c_str(),
+                             from_device<int>(pos_y.data(), positions.size()), positions);
     return failures;
 }
 
@@ -453,9 +787,9 @@ int main() {
     for (int axes : {1, 3}) {
         for (int width : {2, 7, 16}) {
             for (int batch : {1, 8}) {
-                failures += run_pair_case({"27b dflash2 lanes", 256, 64, axes, width * batch, kTextTheta},
-                    24, 4, 131072, batch == 8 ? 16 : 0, batch == 8 ? 8 : 0,
-                    width, width == 16 && batch == 8);
+                failures += run_pair_case(
+                    {"27b dflash2 lanes", 256, 64, axes, width * batch, kTextTheta}, 24, 4, 131072,
+                    batch == 8 ? 16 : 0, batch == 8 ? 8 : 0, width, width == 16 && batch == 8);
             }
         }
     }
@@ -475,6 +809,29 @@ int main() {
     failures += run_pair_case({"35b dflash proposal", 128, 128, 1, 16, kTextTheta}, 32, 8, 262'128);
     failures +=
         run_single_case({"35b dflash context k", 128, 128, 1, 128, kTextTheta}, 8, 131'072, 16);
+
+    // YaRN context extension (ticket #11). The table construction is pinned against the
+    // committed (torch-derived) golden vectors; the rotation is qualified against the
+    // table-driven oracle across the factor/position/geometry grid; the s=1.0 run must be
+    // byte-identical to the non-YaRN route (D6.1); and the launch must survive graph capture.
+    failures += verify_yarn_table();
+    for (double scale : {1.0, 1.1, 1.5, 2.0, 4.0}) {
+        for (int axes : {1, 3}) {
+            failures +=
+                run_yarn_pair_case({"yarn 27b text", 256, 64, axes, 6, kTextTheta}, 24, 4, scale);
+        }
+        // Synthetic R=8 (4 pairs) via the generic path; catches table-construction index
+        // handling independent of the model constants.
+        failures += run_yarn_pair_case({"yarn synth R8", 256, 8, 1, 6, kTextTheta}, 4, 4, scale);
+    }
+    // Graph capture with the YaRN table (the stable table pointer must survive capture/replay).
+    failures += run_yarn_pair_case({"yarn 27b text graph", 256, 64, 1, 6, kTextTheta}, 24, 4, 2.0,
+                                   0, 0, true);
+    // Structural-inert check: the s=1.0 YaRN output is byte-identical to the non-YaRN output.
+    for (int axes : {1, 3}) {
+        failures +=
+            run_yarn_structural_inert({"yarn 27b text inert", 256, 64, axes, 6, kTextTheta}, 24, 4);
+    }
 
     std::cout << (failures == 0 ? "OK" : "FAIL") << " rope correctness\n";
     return failures == 0 ? 0 : 1;

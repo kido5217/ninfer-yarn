@@ -228,4 +228,115 @@ static __global__ void rope_generic_kernel(const std::int32_t* positions, std::i
     }
 }
 
+// ============================================================================
+// YaRN extension path
+// ============================================================================
+// The per-pair inverse frequency is read from a device-resident table (one fp32 per pair)
+// and the attention magnitude `mscale` is applied to cos/sin after the trig. The angle is
+// computed in-kernel as position * inv_freq[pair] (fp32) with the default non-fast-math
+// sinf/cosf. Dispatch keys on table presence, not theta.
+
+template <RopeKernelMode Mode>
+__device__ __forceinline__ void yarn_sincos(const std::int32_t* positions, int tokens, int token,
+                                            int pair, const float* inv_freq, float mscale,
+                                            float* sine, float* cosine) {
+    const int axis = Mode == RopeKernelMode::TextMrope ? pair % 3 : 0;
+    const float position =
+        static_cast<float>(positions[static_cast<std::int64_t>(axis) * tokens + token]);
+    const float angle = position * inv_freq[pair];
+    float s, c;
+    sincosf(angle, &s, &c);
+    *sine   = s * mscale;
+    *cosine = c * mscale;
+}
+
+template <RopeKernelMode Mode, int QHeads, int KHeads>
+__global__ void rope_yarn_fixed_kernel(const std::int32_t* positions, __nv_bfloat16* q,
+                                       __nv_bfloat16* k, std::int32_t tokens,
+                                       std::int64_t q_token_stride, std::int64_t k_token_stride,
+                                       const float* yarn_inv_freq, float yarn_mscale) {
+    // YaRN is only registered for the text D256/R64 geometry.
+    constexpr int kHeadDim = 256;
+    constexpr int kHalf    = 32;
+    const int token        = static_cast<int>(blockIdx.x);
+    if (token >= tokens) { return; }
+
+    __shared__ float cos_cache[kHalf];
+    __shared__ float sin_cache[kHalf];
+    if (threadIdx.x < kHalf) {
+        const int pair = static_cast<int>(threadIdx.x);
+        yarn_sincos<Mode>(positions, tokens, token, pair, yarn_inv_freq, yarn_mscale,
+                          &sin_cache[pair], &cos_cache[pair]);
+    }
+    __syncthreads();
+
+    const int lane        = static_cast<int>(threadIdx.x) & 31;
+    const int warp        = static_cast<int>(threadIdx.x) >> 5;
+    const int block_warps = static_cast<int>(blockDim.x) >> 5;
+    float c0 = 0.0F, c1 = 0.0F, s0 = 0.0F, s1 = 0.0F;
+    if (lane < kHalf / 2) {
+        const int pair = lane * 2;
+        c0             = cos_cache[pair];
+        c1             = cos_cache[pair + 1];
+        s0             = sin_cache[pair];
+        s1             = sin_cache[pair + 1];
+    }
+    for (int combined_head = warp; combined_head < QHeads + KHeads; combined_head += block_warps) {
+        if (combined_head < QHeads) {
+            apply_rope_head<kHeadDim, kHalf>(q, q_token_stride, combined_head, token, lane, c0, c1,
+                                             s0, s1);
+        } else {
+            apply_rope_head<kHeadDim, kHalf>(k, k_token_stride, combined_head - QHeads, token, lane,
+                                             c0, c1, s0, s1);
+        }
+    }
+}
+
+static __global__ void rope_yarn_generic_kernel(const std::int32_t* positions, std::int32_t axes,
+                                                __nv_bfloat16* q, __nv_bfloat16* k,
+                                                std::int32_t head_dim, std::int32_t rotary_dim,
+                                                std::int32_t q_heads, std::int32_t k_heads,
+                                                std::int32_t tokens, std::int64_t q_token_stride,
+                                                std::int64_t k_token_stride, const float* yarn_inv_freq,
+                                                float yarn_mscale) {
+    const int token = static_cast<int>(blockIdx.x);
+    if (token >= tokens) { return; }
+    const int half = rotary_dim / 2;
+    __shared__ float cos_cache[kRopeMaxHalf];
+    __shared__ float sin_cache[kRopeMaxHalf];
+    if (threadIdx.x < static_cast<unsigned>(half)) {
+        const int pair   = static_cast<int>(threadIdx.x);
+        const int axis   = axes == 3 ? pair % 3 : 0;
+        const float angle =
+            static_cast<float>(positions[static_cast<std::int64_t>(axis) * tokens + token]) *
+            yarn_inv_freq[pair];
+        float s, c;
+        sincosf(angle, &s, &c);
+        sin_cache[pair] = s * yarn_mscale;
+        cos_cache[pair] = c * yarn_mscale;
+    }
+    __syncthreads();
+
+    const int lane        = static_cast<int>(threadIdx.x) & 31;
+    const int warp        = static_cast<int>(threadIdx.x) >> 5;
+    const int block_warps = static_cast<int>(blockDim.x) >> 5;
+    for (int combined_head = warp; combined_head < q_heads + k_heads;
+         combined_head += block_warps) {
+        const bool is_q             = combined_head < q_heads;
+        const int head              = is_q ? combined_head : combined_head - q_heads;
+        __nv_bfloat16* data         = is_q ? q : k;
+        const std::int64_t stride_t = is_q ? q_token_stride : k_token_stride;
+        const std::int64_t base     = static_cast<std::int64_t>(token) * stride_t +
+                                  static_cast<std::int64_t>(head) * head_dim;
+        for (int pair = lane; pair < half; pair += 32) {
+            const float first        = __bfloat162float(data[base + pair]);
+            const float second       = __bfloat162float(data[base + pair + half]);
+            const float c            = cos_cache[pair];
+            const float s            = sin_cache[pair];
+            data[base + pair]        = __float2bfloat16_rn(first * c - second * s);
+            data[base + pair + half] = __float2bfloat16_rn(second * c + first * s);
+        }
+    }
+}
+
 } // namespace ninfer::ops
