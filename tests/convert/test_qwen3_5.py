@@ -298,6 +298,26 @@ def test_config_normalization_keeps_dimensions_and_checks_fixed_mathematics():
         text_config(changed, mtp=False)
 
 
+def test_scaled_rope_factor_is_rejected_and_unity_is_accepted():
+    base = _config()
+    base["_name_or_path"] = "my-training-run"
+    # A scaling factor other than 1.0 selects the scaled-RoPE route, which the converter
+    # rejects directly (the YaRN extension is driven at startup by --max-context, not config).
+    scaled = deepcopy(base)
+    scaled["text_config"]["rope_parameters"]["factor"] = 2.0
+    with pytest.raises(ValueError, match="scaled RoPE is not implemented"):
+        text_config(scaled, mtp=False)
+    # A factor of exactly 1.0 is the unextended power-law route and is accepted.
+    neutral = deepcopy(base)
+    neutral["text_config"]["rope_parameters"]["factor"] = 1.0
+    config = text_config(neutral, mtp=False)
+    assert config["rope_parameters"] == {
+        "rope_theta": 10_000_000,
+        "partial_rotary_factor": 0.5,
+        "mrope_section": [1, 1, 0],
+    }
+
+
 def test_additional_source_checks_mapping_geometry_without_release_pinning(tmp_path):
     q_gate = torch.arange(32 * 16).float().reshape(32, 16)
     compatible = _config()
