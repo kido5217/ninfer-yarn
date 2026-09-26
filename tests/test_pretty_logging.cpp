@@ -83,7 +83,7 @@ int main() {
         StderrCapture capture;
         {
             ninfer::product::LoggingRuntime logging(
-                {.logger_name  = "ninfer-serve",
+                {.logger_name  = "ninfer-yarn-serve",
                  .color        = ninfer::product::LogColorMode::Auto,
                  .presentation = ninfer::product::LogPresentation::Service});
             logging.logger()->info("throughput | sample");
@@ -97,7 +97,7 @@ int main() {
             std::regex(
                 R"(^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}  INFO  throughput \| sample\n$)")),
         "service pretty prefix mismatch");
-    failures += check(service_output.find("ninfer-serve") == std::string::npos,
+    failures += check(service_output.find("ninfer-yarn-serve") == std::string::npos,
                       "service pretty output repeated the executable name");
     failures += check(service_output.find("\x1b[") == std::string::npos,
                       "redirected service output contains ANSI escapes");
@@ -107,7 +107,7 @@ int main() {
         StderrCapture capture;
         {
             ninfer::product::LoggingRuntime logging(
-                {.logger_name  = "ninfer-serve",
+                {.logger_name  = "ninfer-yarn-serve",
                  .color        = ninfer::product::LogColorMode::Never,
                  .presentation = ninfer::product::LogPresentation::Service});
             ninfer::product::StartupLogRenderer startup(logging);

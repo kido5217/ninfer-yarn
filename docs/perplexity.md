@@ -1,6 +1,6 @@
 # Perplexity evaluation
 
-`ninfer-perplexity` measures the causal perplexity produced by a v3 `.ninfer` artifact.
+`ninfer-yarn-perplexity` measures the causal perplexity produced by a v3 `.ninfer` artifact.
 It uses the artifact's tokenizer, Text model, selected Main KV representation, final normalization,
 and main output head. It is an offline evaluator, not a serving endpoint or a logits-export API.
 Only Text weights and resources are loaded; Vision and speculative components are not required.
@@ -12,7 +12,7 @@ English reference text, English long-form text, Chinese reference text, and NInf
 `full` selects all streams; `--quick` selects one stream from each domain.
 
 ```bash
-./build/apps/ninfer-perplexity models/qwen3_8_27b_nvfp4.ninfer \
+./build/apps/ninfer-yarn-perplexity models/qwen3_8_27b_nvfp4.ninfer \
   --corpus eval/corpora/perplexity-1m/manifest.json \
   --quick \
   --kv-dtype fp8
@@ -23,13 +23,13 @@ The default evaluation uses a 4,096-token context and a 2,048-token stride. Use 
 KV representations are `bf16`, `int8`, `fp8`, `nvfp4`, and `k8v4`.
 
 ```bash
-./build/apps/ninfer-perplexity models/qwen3_8_27b.ninfer \
+./build/apps/ninfer-yarn-perplexity models/qwen3_8_27b.ninfer \
   --text notes.txt \
   --context 16384 --stride 8192 \
   --kv-dtype int8
 ```
 
-Run `./build/apps/ninfer-perplexity --help` for the complete command surface. The evaluator loads
+Run `./build/apps/ninfer-yarn-perplexity --help` for the complete command surface. The evaluator loads
 the model once, reads and tokenizes every selected stream before scoring, and writes readable
 startup, corpus, scoring, and per-stream summaries to stderr. Interactive weight loading and
 scoring use one transient progress line; redirected scoring emits persistent progress every ten

@@ -17,7 +17,7 @@ These are recorded experimental settings, not promises about current executable 
 |---|---|
 | GPU | One NVIDIA GeForce RTX 5090, 32 GiB |
 | CUDA compile/runtime | 13.1 / 13.1 |
-| Route | Persistent `ninfer-serve`, loopback OpenAI Chat Completions, `stream=false` |
+| Route | Persistent `ninfer-yarn-serve`, loopback OpenAI Chat Completions, `stream=false` |
 | Prefill chunk | 1,024 tokens |
 | KV cache | INT8 group-64 |
 | CUDA Graph | Enabled |

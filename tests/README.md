@@ -157,7 +157,7 @@ PYTHONPATH=eval eval/.venv/bin/python -m unittest discover \
 Run the serving contract manually after starting a resident server in another terminal:
 
 ```bash
-./build/apps/ninfer-serve out/qwen3_6_27b.ninfer \
+./build/apps/ninfer-yarn-serve out/qwen3_6_27b.ninfer \
   --host 127.0.0.1 --port 18080
 ```
 

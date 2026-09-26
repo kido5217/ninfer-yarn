@@ -1,6 +1,6 @@
 # HTTP serving
 
-`build/apps/ninfer-serve` loads one v3 `.ninfer` artifact and exposes OpenAI- and
+`build/apps/ninfer-yarn-serve` loads one v3 `.ninfer` artifact and exposes OpenAI- and
 Anthropic-compatible HTTP endpoints over one resident NInfer Engine.
 
 ## Start the server
@@ -8,7 +8,7 @@ Anthropic-compatible HTTP endpoints over one resident NInfer Engine.
 See [CUDA synchronization](cli.md#cuda-synchronization) for the shared `NINFER_CUDA_SYNC` setting.
 
 ```bash
-./build/apps/ninfer-serve models/qwen3_8_27b_nvfp4.ninfer \
+./build/apps/ninfer-yarn-serve models/qwen3_8_27b_nvfp4.ninfer \
   --host 127.0.0.1 \
   --port 8080 \
   --max-context 240000 \
@@ -822,7 +822,7 @@ Backend pool and is consumed in physical page extents. `--no-prefix-reuse` selec
 mode and cannot be combined with any of the seven explicit context-cache capacity flags, including
 zero-valued flags.
 
-Run `./build/apps/ninfer-serve --help` for the exact option contract.
+Run `./build/apps/ninfer-yarn-serve --help` for the exact option contract.
 
 Serve writes human-readable operational records to stderr using
 `YYYY-MM-DD HH:MM:SS.mmm  LEVEL  message`. Normal output covers material startup milestones,

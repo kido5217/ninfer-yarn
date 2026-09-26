@@ -113,7 +113,7 @@ hf download neroued/Qwen3.6-27B-NInfer \
   qwen3_6_27b.ninfer \
   --local-dir models
 
-./build/apps/ninfer models/qwen3_6_27b.ninfer \
+./build/apps/ninfer-yarn models/qwen3_6_27b.ninfer \
   --prompt "Explain prefill and decode in three sentences." \
   --max-context 32768 \
   --max-new 8192 \
@@ -128,7 +128,7 @@ For images, videos, and structured chat history, see the
 ## Start a local server
 
 ```bash
-./build/apps/ninfer-serve models/qwen3_6_27b.ninfer \
+./build/apps/ninfer-yarn-serve models/qwen3_6_27b.ninfer \
   --host 127.0.0.1 \
   --port 8080 \
   --max-context 240000 \
@@ -168,7 +168,7 @@ The artifact supports:
 ## Performance
 
 The single-request serving measurements below were collected on an NVIDIA GeForce RTX 5090 with
-CUDA 13.1. Requests were submitted serially to a persistent `ninfer-serve` process with CUDA Graph
+CUDA 13.1. Requests were submitted serially to a persistent `ninfer-yarn-serve` process with CUDA Graph
 enabled, a 1,024-token prefill chunk, INT8 group-64 KV cache, and prefix reuse disabled. Each
 single-request value is the arithmetic mean ± sample standard deviation over five fixed seeds;
 warm-up requests are excluded. These results use the `groupwise-int` recipe.

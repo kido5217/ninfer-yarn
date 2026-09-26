@@ -1,6 +1,6 @@
 # Serve TTFT benchmark
 
-The measurement runner is a black-box client for an already-running `ninfer-serve`. It constructs a
+The measurement runner is a black-box client for an already-running `ninfer-yarn-serve`. It constructs a
 fixed request graph, sends only public HTTP requests, and measures time to first token (TTFT). It
 never starts or configures Serve, calls `Engine`, reads request logs, or labels an observed request
 as a cache hit, transfer, or eviction. A separate campaign controller owns the repetitive process
@@ -121,7 +121,7 @@ and mtime remain unchanged. There is no disk fallback or user-facing cache optio
 artifact and common arguments are:
 
 ```bash
-SERVE=build/apps/ninfer-serve
+SERVE=build/apps/ninfer-yarn-serve
 NINFER_WEIGHTS=out/qwen3_8_27b_nvfp4.ninfer
 COMMON=(--host 127.0.0.1 --port 18080 --kv-dtype fp8 \
   --no-thinking --greedy --log-stats-interval-ms 0)

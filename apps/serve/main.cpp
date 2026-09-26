@@ -32,11 +32,11 @@ int main(int argc, char** argv) {
     try {
         options = ninfer::serve::parse_serve_options(argc, argv);
     } catch (const std::invalid_argument& exception) {
-        std::cerr << "ninfer-serve: " << exception.what() << '\n';
+        std::cerr << "ninfer-yarn-serve: " << exception.what() << '\n';
         std::cerr << ninfer::serve::serve_usage_text(argv[0]);
         return 1;
     } catch (const std::exception& exception) {
-        std::cerr << "ninfer-serve: " << exception.what() << '\n';
+        std::cerr << "ninfer-yarn-serve: " << exception.what() << '\n';
         return 1;
     }
     if (options.help_requested) {
@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
     }
 
     ninfer::product::LoggingRuntime logging(
-        {.logger_name  = "ninfer-serve",
+        {.logger_name  = "ninfer-yarn-serve",
          .level        = options.log_level,
          .presentation = ninfer::product::LogPresentation::Service});
     const std::shared_ptr<spdlog::logger> logger = logging.logger();

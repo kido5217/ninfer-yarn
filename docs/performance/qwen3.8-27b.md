@@ -308,7 +308,7 @@ speedup is reported. Neither the phase-rate nor makespan comparisons establish a
 
 ## Reproduction and reports
 
-Build [ninfer-serve](../../README.md#quick-start) and run from the repository root with Python 3.11:
+Build [ninfer-yarn-serve](../../README.md#quick-start) and run from the repository root with Python 3.11:
 
 ```bash
 export NINFER_BENCH_PYTHON=/home/neroued/miniconda3/envs/py311/bin/python
@@ -322,7 +322,7 @@ Historical reports: `profiles/bench/serve_corpus_qwen3_8_27b_groupwise_mtp0_2026
 
 ```bash
 "$NINFER_BENCH_PYTHON" tools/bench/run_serve_corpus.py \
-  --serve build/apps/ninfer-serve \
+  --serve build/apps/ninfer-yarn-serve \
   --artifact qwen3_8_27b=out/qwen3_8_27b.ninfer \
   --mode mtp0 --sampling stochastic \
   --output profiles/bench/serve_corpus_qwen3_8_27b_groupwise_mtp0_20260831
@@ -334,7 +334,7 @@ Historical reports: `profiles/bench/serve_corpus_qwen3_8_27b_nvfp4_mtp0_20260817
 
 ```bash
 "$NINFER_BENCH_PYTHON" tools/bench/run_serve_corpus.py \
-  --serve build/apps/ninfer-serve \
+  --serve build/apps/ninfer-yarn-serve \
   --artifact qwen3_8_27b=out/qwen3_8_27b_nvfp4.ninfer \
   --mode mtp0 --sampling stochastic \
   --output profiles/bench/serve_corpus_qwen3_8_27b_nvfp4_mtp0_20260817
@@ -346,7 +346,7 @@ Historical reports: `profiles/bench/concurrent_corpus_qwen3_8_27b_groupwise_mtp3
 
 ```bash
 "$NINFER_BENCH_PYTHON" tools/bench/run_serve_concurrency.py \
-  --serve build/apps/ninfer-serve \
+  --serve build/apps/ninfer-yarn-serve \
   --artifact qwen3_8_27b=out/qwen3_8_27b.ninfer \
   --mode mtp3 --suite corpus-makespan \
   --concurrency 1 --concurrency 2 --concurrency 4 --concurrency 8 \
@@ -360,7 +360,7 @@ Historical reports: `profiles/bench/concurrent_corpus_qwen3_8_27b_nvfp4_mtp3_202
 
 ```bash
 "$NINFER_BENCH_PYTHON" tools/bench/run_serve_concurrency.py \
-  --serve build/apps/ninfer-serve \
+  --serve build/apps/ninfer-yarn-serve \
   --artifact qwen3_8_27b=out/qwen3_8_27b_nvfp4.ninfer \
   --mode mtp3 --suite corpus-makespan \
   --concurrency 1 --concurrency 2 --concurrency 4 --concurrency 8 \
@@ -374,7 +374,7 @@ Historical reports: `profiles/bench/dflash2-single-kv-fix-20260906/groupwise-int
 
 ```bash
 "$NINFER_BENCH_PYTHON" tools/bench/run_serve_concurrency.py \
-  --serve build/apps/ninfer-serve \
+  --serve build/apps/ninfer-yarn-serve \
   --artifact qwen3_8_27b=out/qwen3_8_27b.ninfer \
   --mode dflash2_7 --sampling stochastic --suite corpus-makespan --concurrency 1 \
   --max-context 131072 --kv-capacity auto --prefill-chunk 1024 --port 18080 \
@@ -387,7 +387,7 @@ Historical reports: `profiles/bench/dflash2-single-kv-fix-20260906/nvfp4/`.
 
 ```bash
 "$NINFER_BENCH_PYTHON" tools/bench/run_serve_concurrency.py \
-  --serve build/apps/ninfer-serve \
+  --serve build/apps/ninfer-yarn-serve \
   --artifact qwen3_8_27b=out/qwen3_8_27b_nvfp4.ninfer \
   --mode dflash2_7 --sampling stochastic --suite corpus-makespan --concurrency 1 \
   --max-context 131072 --kv-capacity auto --prefill-chunk 1024 --port 18080 \
@@ -400,7 +400,7 @@ Historical reports: `profiles/bench/concurrent_decode_qwen3_8_27b_nvfp4_mtp3_202
 
 ```bash
 "$NINFER_BENCH_PYTHON" tools/bench/run_serve_concurrency.py \
-  --serve build/apps/ninfer-serve \
+  --serve build/apps/ninfer-yarn-serve \
   --artifact qwen3_8_27b=out/qwen3_8_27b_nvfp4.ninfer \
   --mode mtp3 --sampling stochastic --suite decode-saturation \
   --concurrency 1 --concurrency 2 --concurrency 4 --concurrency 8 \

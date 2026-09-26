@@ -53,7 +53,7 @@ struct Options {
 };
 
 std::string usage_text() {
-    return "usage: ninfer-perplexity <model.ninfer> "
+    return "usage: ninfer-yarn-perplexity <model.ninfer> "
            "(--corpus <manifest.json> [--quick] | --text <utf8-file>)\n"
            "       [--context N] [--stride N] [--device N]\n"
            "       [--kv-dtype bf16|int8|fp8|nvfp4|k8v4] [--output <directory>]\n"
@@ -439,7 +439,7 @@ int main(int argc, char** argv) {
     try {
         options = parse_options(argc, argv);
     } catch (const std::exception& error) {
-        std::cerr << "ninfer-perplexity: " << error.what() << '\n';
+        std::cerr << "ninfer-yarn-perplexity: " << error.what() << '\n';
         std::cerr << usage_text();
         return 1;
     }
@@ -449,7 +449,7 @@ int main(int argc, char** argv) {
     }
 
     ninfer::product::LoggingRuntime logging(
-        {.logger_name  = "ninfer-perplexity",
+        {.logger_name  = "ninfer-yarn-perplexity",
          .level        = options.log_level,
          .presentation = ninfer::product::LogPresentation::Tool});
     const std::shared_ptr<spdlog::logger> logger = logging.logger();
