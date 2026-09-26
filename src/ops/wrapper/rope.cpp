@@ -3,6 +3,7 @@
 #include "ops/launcher/rope.h"
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
@@ -80,6 +81,15 @@ void require_positions_storage(const Tensor& positions) {
     }
 }
 
+void require_yarn_scale(const YarnScale& yarn) {
+    if (yarn.inv_freq == nullptr) {
+        throw std::invalid_argument("rope: YaRN inv_freq table must be non-null");
+    }
+    if (!(yarn.mscale > 0.0f) || !std::isfinite(yarn.mscale)) {
+        throw std::invalid_argument("rope: YaRN mscale must be positive and finite");
+    }
+}
+
 void require_model_mode(int axes, int rotary_dim, std::int32_t head_dim) {
     if (axes == 2) {
         if (head_dim != kVisionDim || rotary_dim != kVisionDim) {
@@ -138,6 +148,103 @@ void rope(const Tensor& positions, int rotary_dim, float theta, Tensor& x, cudaS
     require_positions_storage(positions);
     if (x.data == nullptr) { throw std::invalid_argument("rope: tensor data must be non-null"); }
     detail::rope_single_launch(positions, rotary_dim, theta, x, stream);
+}
+
+void rope(const Tensor& positions, int rotary_dim, float theta, const YarnScale& yarn, Tensor& q,
+          Tensor& k, cudaStream_t stream) {
+    require_common(positions, rotary_dim, theta);
+    require_yarn_scale(yarn);
+    if (q.dtype != DType::BF16 || k.dtype != DType::BF16) {
+        throw std::invalid_argument("rope: q/k must be BF16");
+    }
+    (void)numel_allow_zero(positions, "positions");
+    const std::int64_t q_numel = numel_allow_zero(q, "q");
+    (void)numel_allow_zero(k, "k");
+    const std::int32_t tokens   = q.ne[2];
+    const int axes              = position_axes(positions, tokens);
+    const std::int32_t head_dim = axes == 2 ? kVisionDim : q.ne[0];
+    const std::int32_t q_heads  = q.ne[1];
+    const std::int32_t k_heads  = k.ne[1];
+    require_model_mode(axes, rotary_dim, head_dim);
+    require_tensor_layout(q, "q", head_dim, q_heads, tokens);
+    require_tensor_layout(k, "k", head_dim, k_heads, tokens);
+    if (q_numel == 0) { return; }
+    require_positions_storage(positions);
+    if (q.data == nullptr || k.data == nullptr) {
+        throw std::invalid_argument("rope: q/k data must be non-null");
+    }
+    detail::rope_yarn_launch(positions, rotary_dim, theta, yarn, q, k, stream);
+}
+
+void rope(const Tensor& positions, int rotary_dim, float theta, const YarnScale& yarn, Tensor& x,
+          cudaStream_t stream) {
+    require_common(positions, rotary_dim, theta);
+    require_yarn_scale(yarn);
+    if (x.dtype != DType::BF16) { throw std::invalid_argument("rope: tensor must be BF16"); }
+    (void)numel_allow_zero(positions, "positions");
+    const std::int64_t x_numel  = numel_allow_zero(x, "tensor");
+    const std::int32_t tokens   = x.ne[2];
+    const int axes              = position_axes(positions, tokens);
+    const std::int32_t head_dim = axes == 2 ? kVisionDim : x.ne[0];
+    const std::int32_t heads    = x.ne[1];
+    require_model_mode(axes, rotary_dim, head_dim);
+    require_tensor_layout(x, "tensor", head_dim, heads, tokens);
+    if (x_numel == 0) { return; }
+    require_positions_storage(positions);
+    if (x.data == nullptr) { throw std::invalid_argument("rope: tensor data must be non-null"); }
+    detail::rope_yarn_single_launch(positions, rotary_dim, theta, yarn, x, stream);
+}
+
+YarnTable compute_rope_yarn_table(float theta, int rotary_dim, std::int64_t original_max,
+                                  double scale, int beta_fast, int beta_slow, double ext_factor) {
+    if (!(theta > 0.0f) || !std::isfinite(theta)) {
+        throw std::invalid_argument("compute_rope_yarn_table: theta must be positive and finite");
+    }
+    if (rotary_dim <= 0 || (rotary_dim & 1) != 0) {
+        throw std::invalid_argument(
+            "compute_rope_yarn_table: rotary_dim must be positive and even");
+    }
+    if (original_max <= 0) {
+        throw std::invalid_argument("compute_rope_yarn_table: original_max must be positive");
+    }
+    if (beta_fast < 0 || beta_slow < 0 || beta_slow > beta_fast) {
+        throw std::invalid_argument("compute_rope_yarn_table: invalid beta_fast/beta_slow");
+    }
+    if (!(ext_factor >= 0.0)) {
+        throw std::invalid_argument("compute_rope_yarn_table: ext_factor must be nonnegative");
+    }
+
+    const double base   = static_cast<double>(theta);
+    const double r      = static_cast<double>(rotary_dim);
+    const double log_b  = std::log(base);
+    const double two_pi = 2.0 * std::acos(-1.0);
+    const auto corr_dim = [&](double n_rot) {
+        return r * std::log(static_cast<double>(original_max) / (n_rot * two_pi)) / (2.0 * log_b);
+    };
+    double low         = std::floor(corr_dim(static_cast<double>(beta_fast)));
+    double high        = std::ceil(corr_dim(static_cast<double>(beta_slow)));
+    const double r_max = static_cast<double>(rotary_dim - 1);
+    if (low < 0.0) { low = 0.0; }
+    if (low > r_max) { low = r_max; }
+    if (high < 0.0) { high = 0.0; }
+    if (high > r_max) { high = r_max; }
+    if (high - low < 1e-9) { high += 0.001; }
+
+    const int half = rotary_dim / 2;
+    YarnTable table;
+    table.inv_freq.reserve(static_cast<std::size_t>(half));
+    for (int i = 0; i < half; ++i) {
+        double ramp = (static_cast<double>(i) - low) / (high - low);
+        if (ramp < 0.0) { ramp = 0.0; }
+        if (ramp > 1.0) { ramp = 1.0; }
+        const double mask   = (1.0 - ramp) * ext_factor;
+        const double extrap = std::pow(base, -2.0 * static_cast<double>(i) / r);
+        const double interp = extrap / scale;
+        const double freq   = interp * (1.0 - mask) + extrap * mask;
+        table.inv_freq.push_back(static_cast<float>(freq));
+    }
+    table.mscale = (scale <= 1.0) ? 1.0f : static_cast<float>(0.1 * std::log(scale) + 1.0);
+    return table;
 }
 
 } // namespace ninfer::ops

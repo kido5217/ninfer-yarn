@@ -206,7 +206,7 @@ The table lists executable defaults. The examples above select FP8 KV and MTP3.
 
 | Option | Meaning | Default |
 |---|---|---:|
-| `--max-context N` | per-sequence logical context ceiling | `2048` |
+| `--max-context N` | per-sequence logical context ceiling; above the native `max_position_embeddings` it activates the YaRN context extension (DFlash rejects it) | `2048` |
 | `--kv-capacity N\|auto` | explicit shared Main Text KV capacity, or maximize it from remaining GPU memory; omitted means `--max-context` | `2048` |
 | `--prefill-chunk N` | positive text-prefill chunk, in multiples of 128 | `1024` |
 | `--max-new N` | requested output-token limit | `128` |
@@ -273,7 +273,9 @@ The official artifacts have a native context limit of 262,144 tokens. The practi
 on one RTX 5090 depends on the selected artifact, media workload, output budget, and KV-cache type.
 The artifact describes its model configuration and weight representations;
 `--kv-dtype` independently selects runtime KV storage. The prepared prompt must fit
-`--max-context`; generation stops at the remaining context capacity when necessary.
+`--max-context`; a value above the model's native position capacity activates the YaRN context
+extension (spec defaults β_fast=32, β_slow=1, ext_factor=1), and the DFlash draft backend rejects
+it. Generation stops at the remaining context capacity when necessary.
 `--kv-capacity N` controls the shared physical Main Text KV pool independently and is rounded up to
 the 64-token page size. `--kv-capacity auto` loads the selected weights, measures the remaining GPU
 memory, and directly chooses the largest legal page capacity for the complete enabled runtime

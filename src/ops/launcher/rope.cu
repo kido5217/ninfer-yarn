@@ -179,6 +179,120 @@ void launch_generic(const Tensor& positions, int rotary_dim, float theta, Tensor
         token_stride(k));
 }
 
+// ============================================================================
+// YaRN extension dispatch (keys on table presence, not theta)
+// ============================================================================
+
+template <RopeKernelMode Mode, int QHeads, int KHeads>
+void launch_yarn_fixed(const Tensor& positions, const float* yarn_inv_freq, float yarn_mscale,
+                       Tensor* q, Tensor* k, cudaStream_t stream) {
+    const int tokens = positions.ne[0];
+    int block        = kSmallBlock;
+    if constexpr (kTextMode<Mode>) {
+        if (tokens <= 6) {
+            block = (QHeads + KHeads) * 32;
+        } else if (tokens <= kLargeBlockWaveCapacity) {
+            block = kLargeBlock;
+        } else if (tokens <= kDefaultChunkTargetTokens) {
+            block = kFullChunkBlock;
+        }
+        const int head_warps = (QHeads + KHeads) * 32;
+        if (block > head_warps) { block = head_warps; }
+        if (block > 1024) { block = 1024; }
+    }
+    rope_yarn_fixed_kernel<Mode, QHeads, KHeads><<<tokens, block, 0, stream>>>(
+        static_cast<const std::int32_t*>(positions.data),
+        q == nullptr ? nullptr : static_cast<__nv_bfloat16*>(q->data),
+        k == nullptr ? nullptr : static_cast<__nv_bfloat16*>(k->data), tokens, token_stride(q),
+        token_stride(k), yarn_inv_freq, yarn_mscale);
+}
+
+bool launch_yarn_pair(const Tensor& positions, int rotary_dim, const YarnScale& yarn, Tensor& q,
+                      Tensor& k, cudaStream_t stream) {
+    if (yarn.inv_freq == nullptr) { return false; }
+    if (!bf16x2_aligned(q) || !bf16x2_aligned(k)) { return false; }
+    const int axes = positions.ne[1];
+    if (rotary_dim == 64 && q.ne[0] == 256) {
+        if (q.ne[1] == 24 && k.ne[1] == 4) {
+            if (axes == 1) {
+                launch_yarn_fixed<RopeKernelMode::Text1D, 24, 4>(positions, yarn.inv_freq,
+                                                                 yarn.mscale, &q, &k, stream);
+                return true;
+            }
+            if (axes == 3) {
+                launch_yarn_fixed<RopeKernelMode::TextMrope, 24, 4>(positions, yarn.inv_freq,
+                                                                    yarn.mscale, &q, &k, stream);
+                return true;
+            }
+        }
+        if (q.ne[1] == 16 && k.ne[1] == 2) {
+            if (axes == 1) {
+                launch_yarn_fixed<RopeKernelMode::Text1D, 16, 2>(positions, yarn.inv_freq,
+                                                                 yarn.mscale, &q, &k, stream);
+                return true;
+            }
+            if (axes == 3) {
+                launch_yarn_fixed<RopeKernelMode::TextMrope, 16, 2>(positions, yarn.inv_freq,
+                                                                    yarn.mscale, &q, &k, stream);
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+template <RopeKernelMode Mode, int Heads>
+void launch_yarn_fixed_single(const Tensor& positions, const float* yarn_inv_freq,
+                              float yarn_mscale, Tensor& x, cudaStream_t stream) {
+    launch_yarn_fixed<Mode, Heads, 0>(positions, yarn_inv_freq, yarn_mscale, &x, nullptr, stream);
+}
+
+template <int Heads>
+bool launch_yarn_text_single(const Tensor& positions, int axes, const YarnScale& yarn, Tensor& x,
+                             cudaStream_t stream) {
+    if (x.ne[1] != Heads) { return false; }
+    if (axes == 1) {
+        launch_yarn_fixed_single<RopeKernelMode::Text1D, Heads>(positions, yarn.inv_freq,
+                                                                yarn.mscale, x, stream);
+        return true;
+    }
+    if (axes == 3) {
+        launch_yarn_fixed_single<RopeKernelMode::TextMrope, Heads>(positions, yarn.inv_freq,
+                                                                   yarn.mscale, x, stream);
+        return true;
+    }
+    return false;
+}
+
+bool launch_yarn_single_dispatch(const Tensor& positions, int rotary_dim, const YarnScale& yarn,
+                                 Tensor& x, cudaStream_t stream) {
+    if (yarn.inv_freq == nullptr) { return false; }
+    if (!bf16x2_aligned(x)) { return false; }
+    const int axes = positions.ne[1];
+    if (rotary_dim == 64 && x.ne[0] == 256) {
+        if (launch_yarn_text_single<24>(positions, axes, yarn, x, stream) ||
+            launch_yarn_text_single<4>(positions, axes, yarn, x, stream) ||
+            launch_yarn_text_single<16>(positions, axes, yarn, x, stream) ||
+            launch_yarn_text_single<2>(positions, axes, yarn, x, stream)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void launch_yarn_generic(const Tensor& positions, int rotary_dim, const YarnScale& yarn, Tensor* q,
+                         Tensor* k, cudaStream_t stream) {
+    constexpr int block = 128;
+    Tensor& sample      = q != nullptr ? *q : *k;
+    const int tokens    = sample.ne[2];
+    rope_yarn_generic_kernel<<<tokens, block, 0, stream>>>(
+        static_cast<const std::int32_t*>(positions.data), positions.ne[1],
+        q == nullptr ? nullptr : static_cast<__nv_bfloat16*>(q->data),
+        k == nullptr ? nullptr : static_cast<__nv_bfloat16*>(k->data), sample.ne[0], rotary_dim,
+        q == nullptr ? 0 : q->ne[1], k == nullptr ? 0 : k->ne[1], tokens, token_stride(q),
+        token_stride(k), yarn.inv_freq, yarn.mscale);
+}
+
 } // namespace
 
 void rope_launch(const Tensor& positions, int rotary_dim, float theta, Tensor& q, Tensor& k,
@@ -193,6 +307,24 @@ void rope_single_launch(const Tensor& positions, int rotary_dim, float theta, Te
                         cudaStream_t stream) {
     if (!launch_fixed_single_dispatch(positions, rotary_dim, theta, x, stream)) {
         launch_generic(positions, rotary_dim, theta, &x, nullptr, stream);
+    }
+    CUDA_CHECK(cudaGetLastError());
+}
+
+void rope_yarn_launch(const Tensor& positions, int rotary_dim, float theta, const YarnScale& yarn,
+                      Tensor& q, Tensor& k, cudaStream_t stream) {
+    (void)theta;  // YaRN keys on table presence, not theta.
+    if (!launch_yarn_pair(positions, rotary_dim, yarn, q, k, stream)) {
+        launch_yarn_generic(positions, rotary_dim, yarn, &q, &k, stream);
+    }
+    CUDA_CHECK(cudaGetLastError());
+}
+
+void rope_yarn_single_launch(const Tensor& positions, int rotary_dim, float theta,
+                             const YarnScale& yarn, Tensor& x, cudaStream_t stream) {
+    (void)theta;  // YaRN keys on table presence, not theta.
+    if (!launch_yarn_single_dispatch(positions, rotary_dim, yarn, x, stream)) {
+        launch_yarn_generic(positions, rotary_dim, yarn, &x, nullptr, stream);
     }
     CUDA_CHECK(cudaGetLastError());
 }

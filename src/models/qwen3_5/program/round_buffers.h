@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <vector>
 
 namespace ninfer::models::qwen3_5 {
 
@@ -24,6 +25,12 @@ struct RoundStateSpec {
     std::uint32_t draft_window   = 0;
     SpeculativeBackend backend   = SpeculativeBackend::None;
     bool causal_scoring          = false;
+    // YaRN context extension. `yarn_inv_freq` holds the host-side per-pair frequencies
+    // (rotary_dim / 2 fp32 values) and `yarn_rotary_dim > 0` selects the YaRN route; an
+    // empty table keeps the unextended power-law path structurally unchanged.
+    std::vector<float> yarn_inv_freq;
+    std::uint32_t yarn_rotary_dim = 0;
+    float yarn_mscale             = 1.0f;
 };
 
 // Stable pinned/device transfer format for ordinary decode. The full fixed-size object is copied
@@ -166,6 +173,12 @@ struct RoundStateLayout {
     std::optional<DFlashPrefillStateLayout> dflash_prefill;
     std::optional<MtpDecodeStateLayout> mtp_decode;
     std::optional<DFlashDecodeStateLayout> dflash_decode;
+    // YaRN context extension. `yarn_inv_freq` is the device-resident table region
+    // (present only when extended); `yarn_inv_freq_values` carries the host-side
+    // table for the one-shot upload; `yarn_mscale` is the host-side magnitude.
+    std::optional<TensorRegion> yarn_inv_freq;
+    std::vector<float> yarn_inv_freq_values;
+    float yarn_mscale = 1.0f;
     bool complete = false;
 };
 
@@ -305,6 +318,10 @@ struct RoundState {
     std::optional<DFlashPrefillState> dflash_prefill;
     std::optional<MtpDecodeState> mtp_decode;
     std::optional<DFlashDecodeState> dflash_decode;
+    // YaRN context extension: the device-resident table (null-backed Tensor when
+    // unextended) and the host-side attention magnitude.
+    Tensor yarn_inv_freq;
+    float yarn_mscale = 1.0f;
 
     RoundState() = default;
     RoundState(DeviceSpan backing, const RoundStateLayout& layout);

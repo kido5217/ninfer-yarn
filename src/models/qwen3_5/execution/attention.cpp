@@ -45,15 +45,24 @@ void attention_projection(const Tensor& hidden, const AttentionParameters& param
 }
 
 void text_rope(const Tensor& positions, const RopeConfig& config, Tensor& query,
-               cudaStream_t stream) {
+               const ops::YarnScale* yarn, cudaStream_t stream) {
     require_rope_axes(positions, config);
-    ops::rope(positions, dimension(config.rotary_dim), config.rope_theta, query, stream);
+    if (yarn != nullptr && yarn->inv_freq != nullptr) {
+        ops::rope(positions, dimension(config.rotary_dim), config.rope_theta, *yarn, query, stream);
+    } else {
+        ops::rope(positions, dimension(config.rotary_dim), config.rope_theta, query, stream);
+    }
 }
 
 void text_rope(const Tensor& positions, const RopeConfig& config, Tensor& query, Tensor& key,
-               cudaStream_t stream) {
+               const ops::YarnScale* yarn, cudaStream_t stream) {
     require_rope_axes(positions, config);
-    ops::rope(positions, dimension(config.rotary_dim), config.rope_theta, query, key, stream);
+    if (yarn != nullptr && yarn->inv_freq != nullptr) {
+        ops::rope(positions, dimension(config.rotary_dim), config.rope_theta, *yarn, query, key,
+                  stream);
+    } else {
+        ops::rope(positions, dimension(config.rotary_dim), config.rope_theta, query, key, stream);
+    }
 }
 
 } // namespace ninfer::models::qwen3_5::execution
