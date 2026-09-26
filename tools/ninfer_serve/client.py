@@ -1,4 +1,4 @@
-"""Shared public-wire client for ninfer-serve benchmark requests."""
+"""Shared public-wire client for ninfer-yarn-serve benchmark requests."""
 
 from __future__ import annotations
 
@@ -252,8 +252,8 @@ class NInferServeClient:
         value = self.get_json("/v1/models")
         entries = value.get("data")
         if not isinstance(entries, list) or len(entries) != 1:
-            raise ServeProtocolError("ninfer-serve must expose exactly one resident model")
+            raise ServeProtocolError("ninfer-yarn-serve must expose exactly one resident model")
         model = entries[0].get("id") if isinstance(entries[0], dict) else None
         if not isinstance(model, str) or not model:
-            raise ServeProtocolError("ninfer-serve model listing has no valid model id")
+            raise ServeProtocolError("ninfer-yarn-serve model listing has no valid model id")
         return model

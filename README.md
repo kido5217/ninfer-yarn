@@ -66,7 +66,7 @@ Start a long-running text/agent server with two active-request lanes and explici
 checkpoint capacity:
 
 ```bash
-./build/apps/ninfer-serve models/qwen3_8_27b_nvfp4.ninfer \
+./build/apps/ninfer-yarn-serve models/qwen3_8_27b_nvfp4.ninfer \
   --max-context 240000 \
   --kv-capacity 240000 \
   --max-concurrency 2 \
@@ -99,7 +99,7 @@ curl http://127.0.0.1:8080/v1/chat/completions \
 Run a one-shot CLI request with a 32,768-token allocation:
 
 ```bash
-./build/apps/ninfer models/qwen3_8_27b_nvfp4.ninfer \
+./build/apps/ninfer-yarn models/qwen3_8_27b_nvfp4.ninfer \
   --prompt "Explain prefill and decode, then give a concise conclusion." \
   --max-context 32768 \
   --max-new 8192 \
@@ -204,7 +204,7 @@ docker run --rm \
   --publish 8080:8080 \
   --volume "$PWD/models:/models:ro" \
   ninfer:local \
-  ninfer-serve /models/qwen3_8_27b_nvfp4.ninfer \
+  ninfer-yarn-serve /models/qwen3_8_27b_nvfp4.ninfer \
   --host 0.0.0.0 \
   --max-context 240000 \
   --kv-capacity 240000 \

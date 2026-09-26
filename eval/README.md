@@ -69,7 +69,7 @@ Concurrency has two levels:
 - optional job `max_concurrency` caps how many target slots one job may reserve.
 
 For EvalScope, the granted job slots become `eval_batch_size`. Multiple jobs sharing a target can
-never reserve more slots than the target capacity. For `ninfer-serve`, match the target capacity to
+never reserve more slots than the target capacity. For `ninfer-yarn-serve`, match the target capacity to
 the server's startup `--max-concurrency`; an individual long-output job may set a lower concurrency
 when its KV entitlement requires it.
 
@@ -260,7 +260,7 @@ reproduces the workload on the selected environment, not the historical score au
 The NVFP4 serving command was:
 
 ```bash
-build/apps/ninfer-serve out/qwen3_6_27b_nvfp4.ninfer \
+build/apps/ninfer-yarn-serve out/qwen3_6_27b_nvfp4.ninfer \
   --host 127.0.0.1 --port 18080 \
   --max-context 262144 --prefill-chunk 1024 --kv-dtype int8 \
   --spec mtp --draft-tokens 3 --lm-head-draft

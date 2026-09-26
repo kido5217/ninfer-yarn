@@ -1,1 +1,1 @@
-"""Public-protocol clients for an already-running ninfer-serve process."""
+"""Public-protocol clients for an already-running ninfer-yarn-serve process."""

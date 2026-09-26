@@ -160,7 +160,7 @@ hf download neroued/Qwen3.8-27B-NInfer \
   qwen3_8_27b.ninfer \
   --local-dir models
 
-./build/apps/ninfer models/qwen3_8_27b.ninfer \
+./build/apps/ninfer-yarn models/qwen3_8_27b.ninfer \
   --prompt "Explain prefill and decode in three sentences." \
   --max-context 32768 \
   --max-new 8192 \
@@ -175,7 +175,7 @@ For images, videos, and structured chat history, see the
 ## Start a local server
 
 ```bash
-./build/apps/ninfer-serve models/qwen3_8_27b.ninfer \
+./build/apps/ninfer-yarn-serve models/qwen3_8_27b.ninfer \
   --host 127.0.0.1 \
   --port 8080 \
   --max-context 240000 \

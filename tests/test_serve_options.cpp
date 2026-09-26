@@ -28,7 +28,7 @@ ServeOptions parse(std::vector<std::string> arguments) {
 int main() {
     int failures = 0;
 
-    const ServeOptions defaults = parse({"ninfer-serve", "model.ninfer"});
+    const ServeOptions defaults = parse({"ninfer-yarn-serve", "model.ninfer"});
     failures += check(defaults.allow_prefix_reuse, "prefix reuse is not enabled by default");
     failures +=
         check(!defaults.preserve_thinking, "thinking history is unexpectedly preserved by default");
@@ -67,49 +67,49 @@ int main() {
     failures += check(resolve_public_model_id(defaults, "artifact-model") == "artifact-model",
                       "artifact model id was not selected by default");
 
-    const ServeOptions fp8 = parse({"ninfer-serve", "model.ninfer", "--kv-dtype", "fp8"});
+    const ServeOptions fp8 = parse({"ninfer-yarn-serve", "model.ninfer", "--kv-dtype", "fp8"});
     failures += check(fp8.kv_cache == ninfer::KvCacheStorage::Fp8E4M3Row256,
                       "--kv-dtype fp8 did not select row-scaled E4M3 KV");
-    const ServeOptions nvfp4 = parse({"ninfer-serve", "model.ninfer", "--kv-dtype", "nvfp4"});
+    const ServeOptions nvfp4 = parse({"ninfer-yarn-serve", "model.ninfer", "--kv-dtype", "nvfp4"});
     failures += check(nvfp4.kv_cache == ninfer::KvCacheStorage::Nvfp4Group16,
                       "--kv-dtype nvfp4 did not select group-16 NVFP4 KV");
-    const ServeOptions k8v4 = parse({"ninfer-serve", "model.ninfer", "--kv-dtype", "k8v4"});
+    const ServeOptions k8v4 = parse({"ninfer-yarn-serve", "model.ninfer", "--kv-dtype", "k8v4"});
     failures += check(k8v4.kv_cache == ninfer::KvCacheStorage::Fp8KeyNvfp4Value,
                       "--kv-dtype k8v4 did not select asymmetric K8V4 KV");
-    const std::string kv_help = serve_usage_text("ninfer-serve");
+    const std::string kv_help = serve_usage_text("ninfer-yarn-serve");
     failures += check(kv_help.find("nvfp4") != std::string::npos &&
                           kv_help.find("k8v4") != std::string::npos,
                       "serve help omits a production KV storage mode");
 
     const ServeOptions model_alias =
-        parse({"ninfer-serve", "model.ninfer", "--model-id", "deployment-alias"});
+        parse({"ninfer-yarn-serve", "model.ninfer", "--model-id", "deployment-alias"});
     failures +=
         check(model_alias.model_id_override == "deployment-alias" &&
                   resolve_public_model_id(model_alias, "artifact-model") == "deployment-alias",
               "explicit model id did not override the artifact identity");
 
     const ServeOptions context_cost =
-        parse({"ninfer-serve", "model.ninfer", "--context-cost-presets", "local-costs.json"});
+        parse({"ninfer-yarn-serve", "model.ninfer", "--context-cost-presets", "local-costs.json"});
     failures += check(context_cost.context_cost_presets == "local-costs.json",
                       "--context-cost-presets did not preserve its path");
 
     const ServeOptions thinking_budget =
-        parse({"ninfer-serve", "model.ninfer", "--default-thinking-budget", "37"});
+        parse({"ninfer-yarn-serve", "model.ninfer", "--default-thinking-budget", "37"});
     failures += check(thinking_budget.default_thinking_budget == 37,
                       "--default-thinking-budget did not preserve its positive value");
     bool zero_thinking_budget_rejected = false;
     try {
-        (void)parse({"ninfer-serve", "model.ninfer", "--default-thinking-budget", "0"});
+        (void)parse({"ninfer-yarn-serve", "model.ninfer", "--default-thinking-budget", "0"});
     } catch (const std::invalid_argument&) { zero_thinking_budget_rejected = true; }
     failures += check(zero_thinking_budget_rejected, "zero --default-thinking-budget was accepted");
 
     bool empty_model_id_rejected = false;
     try {
-        (void)parse({"ninfer-serve", "model.ninfer", "--model-id", ""});
+        (void)parse({"ninfer-yarn-serve", "model.ninfer", "--model-id", ""});
     } catch (const std::invalid_argument&) { empty_model_id_rejected = true; }
     failures += check(empty_model_id_rejected, "empty --model-id was accepted");
 
-    const ServeOptions dflash = parse({"ninfer-serve", "model.ninfer", "--spec", "dflash",
+    const ServeOptions dflash = parse({"ninfer-yarn-serve", "model.ninfer", "--spec", "dflash",
                                        "--draft-tokens", "15", "--lm-head-draft"});
     failures += check(dflash.speculative.backend == ninfer::SpeculativeBackend::DFlash,
                       "--spec dflash did not select DFlash");
@@ -119,7 +119,7 @@ int main() {
                       "--lm-head-draft did not select the optimized proposal head");
 
     for (const auto k : {1U, 2U, 7U, 15U}) {
-        const auto options = parse({"ninfer-serve", "model.ninfer", "--spec", "dflash2",
+        const auto options = parse({"ninfer-yarn-serve", "model.ninfer", "--spec", "dflash2",
                                     "--draft-tokens", std::to_string(k), "--lm-head-draft"});
         failures += check(options.speculative.backend == ninfer::SpeculativeBackend::DFlash2 &&
                               options.speculative.draft_tokens == k &&
@@ -128,7 +128,7 @@ int main() {
     }
 
     const ServeOptions dflash_vision = parse(
-        {"ninfer-serve", "model.ninfer", "--spec", "dflash", "--draft-tokens", "15", "--vision"});
+        {"ninfer-yarn-serve", "model.ninfer", "--spec", "dflash", "--draft-tokens", "15", "--vision"});
     failures += check(dflash_vision.enable_vision &&
                           dflash_vision.speculative.backend == ninfer::SpeculativeBackend::DFlash &&
                           dflash_vision.speculative.draft_tokens == 15,
@@ -136,11 +136,11 @@ int main() {
 
     bool implicit_backend_rejected = false;
     try {
-        (void)parse({"ninfer-serve", "model.ninfer", "--draft-tokens", "3"});
+        (void)parse({"ninfer-yarn-serve", "model.ninfer", "--draft-tokens", "3"});
     } catch (const std::invalid_argument&) { implicit_backend_rejected = true; }
     failures += check(implicit_backend_rejected, "--draft-tokens selected a backend implicitly");
 
-    const ServeOptions configured = parse({"ninfer-serve",
+    const ServeOptions configured = parse({"ninfer-yarn-serve",
                                            "model.ninfer",
                                            "--no-prefix-reuse",
                                            "--vision",
@@ -188,12 +188,12 @@ int main() {
                           configured.media_preprocess_threads == 6,
                       "media preparation limits did not reach serving options");
 
-    const ServeOptions logging = parse({"ninfer-serve", "model.ninfer", "--log-level", "debug"});
+    const ServeOptions logging = parse({"ninfer-yarn-serve", "model.ninfer", "--log-level", "debug"});
     failures += check(logging.log_level == ninfer::product::LogLevel::Debug,
                       "log level did not reach serving options");
 
     const ServeOptions context_cache =
-        parse({"ninfer-serve", "model.ninfer", "--device-state-slots", "3", "--host-state-slots",
+        parse({"ninfer-yarn-serve", "model.ninfer", "--device-state-slots", "3", "--host-state-slots",
                "5", "--host-kv-mib", "64", "--max-private-continuations", "9",
                "--max-shared-prefixes", "4", "--max-long-anchors-per-continuation", "2"});
     failures += check(context_cache.context_cache.enabled &&
@@ -206,20 +206,20 @@ int main() {
                       "context-cache capacities did not reach serving options");
     bool disabled_cache_capacity_rejected = false;
     try {
-        (void)parse({"ninfer-serve", "model.ninfer", "--no-prefix-reuse", "--host-kv-mib", "64"});
+        (void)parse({"ninfer-yarn-serve", "model.ninfer", "--no-prefix-reuse", "--host-kv-mib", "64"});
     } catch (const std::invalid_argument&) { disabled_cache_capacity_rejected = true; }
     failures += check(disabled_cache_capacity_rejected,
                       "root-only server mode accepted context-cache capacity options");
 
     const ServeOptions response_store =
-        parse({"ninfer-serve", "model.ninfer", "--response-store-max-records", "42",
+        parse({"ninfer-yarn-serve", "model.ninfer", "--response-store-max-records", "42",
                "--response-store-max-mib", "8"});
     failures += check(response_store.response_store_max_records == 42 &&
                           response_store.response_store_max_bytes == (8ULL << 20),
                       "Responses store limits did not reach serving options");
 
     const ServeOptions sampling =
-        parse({"ninfer-serve", "model.ninfer", "--temperature", "0", "--top-p", "0.9", "--top-k",
+        parse({"ninfer-yarn-serve", "model.ninfer", "--temperature", "0", "--top-p", "0.9", "--top-k",
                "20", "--min-p", "0.1", "--presence-penalty", "1.25", "--frequency-penalty", "-0.5",
                "--seed", "0"});
     failures += check(sampling.sampling_overrides.temperature == 0.0F &&
@@ -232,7 +232,7 @@ int main() {
                       "server sampling flags did not preserve explicit values and zeros");
     bool oversized_top_k_rejected = false;
     try {
-        (void)parse({"ninfer-serve", "model.ninfer", "--top-k", "21"});
+        (void)parse({"ninfer-yarn-serve", "model.ninfer", "--top-k", "21"});
     } catch (const std::invalid_argument&) { oversized_top_k_rejected = true; }
     failures += check(oversized_top_k_rejected,
                       "server accepted top_k beyond the executable candidate domain");
@@ -285,59 +285,59 @@ int main() {
                       "request preserve-thinking override did not win");
 
     failures +=
-        check(serve_usage_text("ninfer-serve").find("--no-prefix-reuse") != std::string::npos,
+        check(serve_usage_text("ninfer-yarn-serve").find("--no-prefix-reuse") != std::string::npos,
               "serve help omits --no-prefix-reuse");
-    failures += check(serve_usage_text("ninfer-serve").find("--host-kv-mib") != std::string::npos,
+    failures += check(serve_usage_text("ninfer-yarn-serve").find("--host-kv-mib") != std::string::npos,
                       "serve help omits context-cache capacities");
-    failures += check(serve_usage_text("ninfer-serve").find("device-state=max-concurrency") !=
+    failures += check(serve_usage_text("ninfer-yarn-serve").find("device-state=max-concurrency") !=
                           std::string::npos,
                       "serve help omits context-cache defaults");
     failures +=
-        check(serve_usage_text("ninfer-serve").find("--preserve-thinking") != std::string::npos,
+        check(serve_usage_text("ninfer-yarn-serve").find("--preserve-thinking") != std::string::npos,
               "serve help omits --preserve-thinking");
-    failures += check(serve_usage_text("ninfer-serve").find("--default-thinking-budget") !=
+    failures += check(serve_usage_text("ninfer-yarn-serve").find("--default-thinking-budget") !=
                           std::string::npos,
                       "serve help omits --default-thinking-budget");
-    failures += check(serve_usage_text("ninfer-serve").find("--vision") != std::string::npos,
+    failures += check(serve_usage_text("ninfer-yarn-serve").find("--vision") != std::string::npos,
                       "serve help omits --vision");
     failures +=
-        check(serve_usage_text("ninfer-serve").find("--log-stats-interval-ms") != std::string::npos,
+        check(serve_usage_text("ninfer-yarn-serve").find("--log-stats-interval-ms") != std::string::npos,
               "serve help omits --log-stats-interval-ms");
-    failures += check(serve_usage_text("ninfer-serve").find("--log-level") != std::string::npos,
+    failures += check(serve_usage_text("ninfer-yarn-serve").find("--log-level") != std::string::npos,
                       "serve help omits the log-level control");
-    failures += check(serve_usage_text("ninfer-serve").find("--media-preprocess-threads") !=
+    failures += check(serve_usage_text("ninfer-yarn-serve").find("--media-preprocess-threads") !=
                           std::string::npos,
                       "serve help omits media preparation controls");
-    failures += check(serve_usage_text("ninfer-serve").find("--kv-capacity") != std::string::npos,
+    failures += check(serve_usage_text("ninfer-yarn-serve").find("--kv-capacity") != std::string::npos,
                       "serve help omits --kv-capacity");
-    failures += check(serve_usage_text("ninfer-serve").find("--response-store-max-mib") !=
+    failures += check(serve_usage_text("ninfer-yarn-serve").find("--response-store-max-mib") !=
                           std::string::npos,
                       "serve help omits Responses store limits");
     failures +=
-        check(serve_usage_text("ninfer-serve").find("--context-cost-presets") != std::string::npos,
+        check(serve_usage_text("ninfer-yarn-serve").find("--context-cost-presets") != std::string::npos,
               "serve help omits external context-cost presets");
-    failures += check(serve_usage_text("ninfer-serve").find("metadata.name") != std::string::npos,
+    failures += check(serve_usage_text("ninfer-yarn-serve").find("metadata.name") != std::string::npos,
                       "serve help omits the artifact-derived model id default");
 
     const ServeOptions inherited =
-        parse({"ninfer-serve", "model.ninfer", "--max-context", "16384"});
+        parse({"ninfer-yarn-serve", "model.ninfer", "--max-context", "16384"});
     failures += check(inherited.kv_capacity.mode == ninfer::KvCapacityMode::Explicit &&
                           inherited.kv_capacity.explicit_tokens == 16384,
                       "omitted --kv-capacity did not follow --max-context");
 
-    const ServeOptions automatic = parse({"ninfer-serve", "model.ninfer", "--kv-capacity", "auto"});
+    const ServeOptions automatic = parse({"ninfer-yarn-serve", "model.ninfer", "--kv-capacity", "auto"});
     failures += check(automatic.kv_capacity.mode == ninfer::KvCapacityMode::Automatic &&
                           automatic.kv_capacity.explicit_tokens == 0 &&
                           automatic.kv_capacity.automatic_headroom_bytes ==
                               ninfer::kDefaultKvCapacityHeadroomBytes,
                       "--kv-capacity auto did not select automatic sizing");
 
-    const ServeOptions logged = parse({"ninfer-serve", "model.ninfer", "--request-log-jsonl",
+    const ServeOptions logged = parse({"ninfer-yarn-serve", "model.ninfer", "--request-log-jsonl",
                                        "requests.jsonl", "--api-key", "do-not-log"});
     failures += check(logged.request_log_jsonl == "requests.jsonl",
                       "--request-log-jsonl did not preserve its path");
     failures +=
-        check(serve_usage_text("ninfer-serve").find("--request-log-jsonl") != std::string::npos,
+        check(serve_usage_text("ninfer-yarn-serve").find("--request-log-jsonl") != std::string::npos,
               "serve help omits --request-log-jsonl");
     bool secret_present    = false;
     bool redaction_present = false;

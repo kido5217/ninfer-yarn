@@ -94,7 +94,7 @@ artifacts. See [`tools/bench/ttft/README.md`](bench/ttft/README.md).
 
 ## Serving smoke
 
-After starting `ninfer-serve` in another terminal:
+After starting `ninfer-yarn-serve` in another terminal:
 
 ```bash
 python3 -m tools.smoke.serve_contract \

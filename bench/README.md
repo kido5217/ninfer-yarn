@@ -164,7 +164,7 @@ the runtime's strict loader before publication.
 [`context_cost_defaults.cpp`](../src/runtime/engine/context_cache/context_cost_defaults.cpp) is the sole table of
 defaults compiled into the binary. JSON is not a build input: `--preset-out` produces a runtime
 registry that can be selected immediately, without recompilation, through
-`EngineOptions.context_cost.preset_path` or `ninfer-serve --context-cost-presets`. Resolution always
+`EngineOptions.context_cost.preset_path` or `ninfer-yarn-serve --context-cost-presets`. Resolution always
 starts with generic numerical coefficients,
 then independently applies matching compiled transfer/prefill values, then independently applies
 matching external values. A malformed explicit file is an error; a missing hardware or prefill-signature

@@ -96,8 +96,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--serve",
         type=Path,
-        default=REPO_ROOT / "build/apps/ninfer-serve",
-        help="ninfer-serve executable",
+        default=REPO_ROOT / "build/apps/ninfer-yarn-serve",
+        help="ninfer-yarn-serve executable",
     )
     parser.add_argument(
         "--artifact",
@@ -144,7 +144,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--kv-capacity",
         default="262144",
         metavar="N|auto",
-        help="shared Main KV capacity passed to ninfer-serve (default: 262144)",
+        help="shared Main KV capacity passed to ninfer-yarn-serve (default: 262144)",
     )
     parser.add_argument("--prefill-chunk", type=int, default=1024)
     parser.add_argument("--output", type=Path, required=True, help="benchmark output directory")
@@ -1086,9 +1086,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     serve = args.serve.expanduser().resolve()
     if not args.dry_run:
         if not serve.is_file():
-            raise corpus.CampaignError(f"ninfer-serve executable not found: {serve}")
+            raise corpus.CampaignError(f"ninfer-yarn-serve executable not found: {serve}")
         if not os.access(serve, os.X_OK):
-            raise corpus.CampaignError(f"ninfer-serve is not executable: {serve}")
+            raise corpus.CampaignError(f"ninfer-yarn-serve is not executable: {serve}")
         (output_dir / "server").mkdir(parents=True, exist_ok=True)
         (output_dir / "points").mkdir(parents=True, exist_ok=True)
 

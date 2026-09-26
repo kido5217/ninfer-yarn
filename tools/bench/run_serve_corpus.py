@@ -135,7 +135,7 @@ class ServerLogTail:
     def _check_process(self) -> None:
         returncode = self.process.poll()
         if returncode is not None:
-            raise CampaignError(f"ninfer-serve exited unexpectedly with status {returncode}")
+            raise CampaignError(f"ninfer-yarn-serve exited unexpectedly with status {returncode}")
 
     def _read_new(self) -> None:
         if not self.path.exists():
@@ -219,7 +219,7 @@ class RunningServer:
         while True:
             returncode = self.process.poll()
             if returncode is not None:
-                raise CampaignError(f"ninfer-serve exited during startup with status {returncode}")
+                raise CampaignError(f"ninfer-yarn-serve exited during startup with status {returncode}")
             connection = http.client.HTTPConnection(self.host, self.port, timeout=2.0)
             try:
                 connection.request("GET", "/health", headers={"Connection": "close"})
@@ -238,7 +238,7 @@ class RunningServer:
                 connection.close()
             if time.monotonic() >= deadline:
                 raise CampaignError(
-                    f"timed out waiting for ninfer-serve at http://{self.host}:{self.port}"
+                    f"timed out waiting for ninfer-yarn-serve at http://{self.host}:{self.port}"
                 )
             time.sleep(0.2)
 
@@ -267,8 +267,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--serve",
         type=Path,
-        default=REPO_ROOT / "build/apps/ninfer-serve",
-        help="ninfer-serve executable",
+        default=REPO_ROOT / "build/apps/ninfer-yarn-serve",
+        help="ninfer-yarn-serve executable",
     )
     parser.add_argument(
         "--artifact",
@@ -1226,9 +1226,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     serve = args.serve.expanduser().resolve()
     if not serve.is_file():
-        raise CampaignError(f"ninfer-serve executable not found: {serve}")
+        raise CampaignError(f"ninfer-yarn-serve executable not found: {serve}")
     if not os.access(serve, os.X_OK):
-        raise CampaignError(f"ninfer-serve is not executable: {serve}")
+        raise CampaignError(f"ninfer-yarn-serve is not executable: {serve}")
 
     artifacts = parse_artifacts(args.artifact)
     mode_names = args.mode or list(DEFAULT_MODES)

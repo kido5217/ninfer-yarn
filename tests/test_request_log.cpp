@@ -58,7 +58,7 @@ int main() {
     options.preserve_thinking              = true;
     options.default_thinking_budget        = 512;
     options.sampling_overrides.temperature = 0.6F;
-    options.startup_argv = {"ninfer-serve", options.artifact_path, "--api-key", "<redacted>"};
+    options.startup_argv = {"ninfer-yarn-serve", options.artifact_path, "--api-key", "<redacted>"};
 
     ninfer::EngineOptions engine_options;
     engine_options.artifact_path                                   = options.artifact_path;

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one audited TTFT request graph against an already-running ninfer-serve."""
+"""Run one audited TTFT request graph against an already-running ninfer-yarn-serve."""
 
 from __future__ import annotations
 

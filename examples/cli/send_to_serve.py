@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Send one NInfer CLI messages file to an already-running ninfer-serve instance."""
+"""Send one NInfer CLI messages file to an already-running ninfer-yarn-serve instance."""
 
 from __future__ import annotations
 
