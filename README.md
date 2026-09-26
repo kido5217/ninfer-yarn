@@ -249,10 +249,12 @@ The product boundary remains intentionally small:
 - parsed tool calls are returned to the client; NInfer does not execute tools;
 - the in-tree C++ headers are not distributed as an installed SDK.
 
-`--max-context` is each sequence's logical limit. `--kv-capacity` sizes the shared Main Text KV pool
-used by active requests and retained prefixes; `auto` resolves the largest legal capacity at
-startup from the memory remaining after weights while keeping 1 GiB of sizing headroom. Explicit
-capacities remain fixed for the process lifetime.
+`--max-context` is each sequence's logical limit. When it exceeds the model's native position
+capacity (`max_position_embeddings`), NInfer activates the YaRN context extension (spec defaults
+β_fast=32, β_slow=1, ext_factor=1), which the DFlash draft backend does not support. `--kv-capacity`
+sizes the shared Main Text KV pool used by active requests and retained prefixes; `auto` resolves
+the largest legal capacity at startup from the memory remaining after weights while keeping 1 GiB
+of sizing headroom. Explicit capacities remain fixed for the process lifetime.
 
 ## Documentation
 

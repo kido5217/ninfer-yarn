@@ -757,7 +757,7 @@ The table lists executable defaults. The startup example selects a long-context 
 | `--port N` | listen port | `8080` |
 | `--api-key KEY` | required bearer or `x-api-key` value | unset |
 | `--model-id ID` | override the public OpenAI model alias | artifact `identity.model_id` |
-| `--max-context N` | logical context ceiling of each sequence | `8192` |
+| `--max-context N` | logical context ceiling of each sequence; above the native `max_position_embeddings` it activates the YaRN context extension (DFlash rejects it) | `8192` |
 | `--kv-capacity N\|auto` | explicit shared Main Text KV capacity, or maximize it from remaining GPU memory; omitted means `--max-context` | `8192` |
 | `--max-concurrency N` | maximum admitted requests; valid range `1..8` | `1` |
 | `--max-pending-requests N` | additional requests allowed to wait for admission | `16` |
@@ -948,10 +948,12 @@ media request retains the same cancellation and timeout deadline. Model output i
 same finite request count and each request's effective output-token limit; output callbacks and
 network serialization run outside the GPU executor and do not delay formation of the next batch.
 
-`--max-context` is each sequence's logical ceiling. `--kv-capacity` fixes the shared Main Text KV
-pool used by active requests and retained prefixes. `auto` accounts for the complete enabled runtime
-and leaves 1 GiB of sizing headroom; omitting the option makes it follow `--max-context`. Capacity
-resolves once at startup.
+`--max-context` is each sequence's logical ceiling. A value above the model's native position
+capacity activates the YaRN context extension (spec defaults β_fast=32, β_slow=1, ext_factor=1); the
+DFlash draft backend rejects it. `--kv-capacity` fixes the shared Main Text KV pool used by active
+requests and retained prefixes. `auto` accounts for the complete enabled runtime and leaves 1 GiB
+of sizing headroom; omitting the option makes it follow `--max-context`. Capacity resolves once at
+startup.
 
 Admission reserves the full prompt-plus-effective-output page entitlement through request
 completion. A request remains queued until a legal resource plan can satisfy that entitlement.
